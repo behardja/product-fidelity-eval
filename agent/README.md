@@ -89,6 +89,60 @@ All data passes between agents via `tool_context.state`. Key state variables:
 
 **Prompts as files** — The system instruction and user prompt (~400+ words each) live in `prompts/` as plain text files to separate prompt engineering from code.
 
+## Prerequisites
+
+### GCP APIs
+
+The following APIs must be enabled on your project:
+
+- **Vertex AI API** (`aiplatform.googleapis.com`)
+- **Cloud Storage API** (`storage.googleapis.com`)
+
+### GCS bucket structure
+
+The pipeline reads reference images from and writes generated images to a single GCS bucket. The bucket must exist before running the agent, and reference images must be uploaded to the bucket root (or any path — the full `gs://` URI is passed at runtime).
+
+Generated images are written automatically by the pipeline under a `generated/` prefix:
+
+```
+gs://<BUCKET_NAME>/
+├── <reference_image_1>.png        # You upload these (input)
+├── <reference_image_2>.png
+├── ...
+└── generated/                     # Created automatically by the pipeline (output)
+    └── <sku_id>/
+        ├── attempt_1_<uuid>.png
+        ├── attempt_2_<uuid>.png
+        └── ...
+```
+
+- **Reference images** — upload product photos (PNG, JPG, WEBP) to the bucket before running. These are the source-of-truth images that Gemini analyzes to produce the ground-truth description. Pass their full `gs://` URIs in the user prompt.
+- **`generated/{sku_id}/`** — created at runtime by `generate_product_image`. Each attempt gets a unique filename with the attempt number and a short UUID.
+- **HTML report** — written to the local filesystem as `gecko_report_{sku_id}.html`, not to GCS.
+
+### Authentication
+
+The pipeline uses Application Default Credentials. Ensure your environment is authenticated:
+
+```bash
+gcloud auth application-default login
+```
+
+The authenticated principal needs these IAM roles (or equivalent):
+
+- `roles/storage.objectAdmin` on the bucket (read reference images, write generated images)
+- `roles/aiplatform.user` on the project (Gemini API, Vertex AI Evals / Gecko)
+
+### Python dependencies
+
+```
+google-adk
+google-cloud-aiplatform[evaluation]
+google-genai
+google-cloud-storage
+pandas
+```
+
 ## Configuration
 
 Set via environment variables or defaults in `config.py`:
