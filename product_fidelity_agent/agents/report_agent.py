@@ -1,12 +1,14 @@
 from google.adk.agents.llm_agent import LlmAgent
 
 from ..config import AGENT_MODEL
+from ..callbacks import cleanup_image_data
 from ..tools.reporting import create_html_report
 
 report_agent = LlmAgent(
     name="ReportAgent",
     model=AGENT_MODEL,
     include_contents="none",
+    before_model_callback=cleanup_image_data,
     instruction="""You are a report generation coordinator.
 
 Generate an HTML evaluation report by calling the create_html_report tool.

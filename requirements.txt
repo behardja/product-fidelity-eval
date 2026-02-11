@@ -1,0 +1,6 @@
+google-adk
+google-genai
+google-cloud-storage
+vertexai
+pandas
+Pillow

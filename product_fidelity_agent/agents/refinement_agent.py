@@ -1,12 +1,14 @@
 from google.adk.agents.llm_agent import LlmAgent
 
 from ..config import AGENT_MODEL
+from ..callbacks import cleanup_image_data
 from ..tools.gemini import refine_description
 
 refinement_agent = LlmAgent(
     name="RefinementAgent",
     model=AGENT_MODEL,
     include_contents="none",
+    before_model_callback=cleanup_image_data,
     instruction="""You are a description refinement coordinator.
 
 The candidate image did not pass the fidelity threshold. Refine the product

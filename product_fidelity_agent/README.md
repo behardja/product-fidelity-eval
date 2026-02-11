@@ -18,9 +18,10 @@ root_agent (SequentialAgent: ProductFidelityPipeline)
 ├── 3. RefinementLoop (LoopAgent, max_iterations=3)
 │   │
 │   ├── ImageGenAgent (LlmAgent)
-│   │     Generates a candidate product image from the current description
-│   │     using gemini-3-pro-image-preview (Nano Banana Pro).
-│   │     Saves the result to GCS.
+│   │     Generates a candidate product image using gemini-3-pro-image-preview.
+│   │     On the first attempt, uses a generic recontextualization prompt.
+│   │     On retries, augments the prompt with the refined description and
+│   │     failing verdicts from the previous evaluation. Saves to GCS.
 │   │
 │   ├── EvaluationAgent (LlmAgent)
 │   │     Runs Gecko text-to-image evaluation against the ground-truth
@@ -42,8 +43,10 @@ root_agent (SequentialAgent: ProductFidelityPipeline)
 ## Folder Structure
 
 ```
-agent/
+product_fidelity_agent/
+├── __init__.py               # Exports root_agent
 ├── agent.py                  # Root SequentialAgent + LoopAgent wiring, InputAgent
+├── callbacks.py              # inject_generated_image, cleanup_image_data
 ├── config.py                 # GCP project, model IDs, threshold (0.7), max retries (3)
 ├── agents/
 │   ├── description_agent.py  # Ground-truth description generation
@@ -74,7 +77,7 @@ All data passes between agents via `tool_context.state`. Key state variables:
 | `current_description` | DescriptionAgent / RefinementAgent | ImageGenAgent |
 | `candidate_image_uri` | ImageGenAgent | EvaluationAgent |
 | `gecko_score` | EvaluationAgent | ReportAgent |
-| `failing_verdicts_text` | EvaluationAgent | RefinementAgent |
+| `failing_verdicts_text` | EvaluationAgent | RefinementAgent, ImageGenAgent (retries only) |
 | `evaluation_history` | EvaluationAgent (appended each attempt) | ReportAgent |
 | `evaluation_passed` | check_threshold | ReportAgent |
 | `attempt` | InputAgent / RefinementAgent | ImageGenAgent, check_threshold |
@@ -137,10 +140,11 @@ The authenticated principal needs these IAM roles (or equivalent):
 
 ```
 google-adk
-google-cloud-aiplatform[evaluation]
 google-genai
 google-cloud-storage
+vertexai
 pandas
+Pillow
 ```
 
 ## Configuration
@@ -149,9 +153,9 @@ Set via environment variables or defaults in `config.py`:
 
 | Variable | Default | Description |
 |---|---|---|
-| `PROJECT_ID` | `sandbox-401718` | GCP project |
-| `LOCATION` | `global` | GCP region |
-| `BUCKET_NAME` | `sandbox-401718-product-fidelity-evals` | GCS bucket for images |
+| `PROJECT_ID` | `cpg-cdp` | GCP project |
+| `LOCATION` | `us-central1` | GCP region |
+| `BUCKET_NAME` | `sandbox-401718-product-fidelity-eval` | GCS bucket for images |
 
 Model and threshold constants in `config.py`:
 
@@ -162,6 +166,11 @@ Model and threshold constants in `config.py`:
 | `AGENT_MODEL` | `gemini-3-pro-preview` |
 | `PASSING_THRESHOLD` | `0.7` |
 | `MAX_RETRIES` | `3` |
+
+## To Do
+
+- [x] On retries, augment the image generation prompt with the refined description and failing verdicts from Gecko evaluation
+- [ ] Investigate whether using the refined description on the first attempt (not just retries) produces higher-fidelity results
 
 ## Usage
 

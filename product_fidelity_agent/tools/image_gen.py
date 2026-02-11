@@ -8,20 +8,59 @@ from ..config import PROJECT_ID, LOCATION, IMAGE_GEN_MODEL, BUCKET_NAME
 from .gcs import write_to_gcs
 
 
-def generate_product_image(description: str, tool_context: ToolContext) -> dict:
-    """Generate a product image from a text description using Gemini image generation.
+RECONTEXTUALIZATION_PROMPT = (
+    "Using the provided product image, generate a new image of the same product "
+    "in a contextually appropriate setting. The new image should NOT have a white "
+    "background, and should be contextualized based on the product itself. "
+    "For example, if the product is a bag, the image should show the bag in a "
+    "natural ad or professional photo setting. If the product is a dress, the "
+    "image should show the dress in a natural model photo setting. "
+    "Keep the product exactly as it is — do not alter its design, colors, "
+    "logos, or any visual details."
+)
 
-    Args:
-        description: Text description of the product to generate.
+
+def generate_product_image(tool_context: ToolContext) -> dict:
+    """Generate a recontextualized product image from the original product reference image(s).
+
+    Takes the original product reference image(s) from state and places them
+    into a contextually appropriate background/setting.
 
     Returns:
         dict with 'image_uri' containing the GCS URI of the generated image.
     """
     client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
 
+    # Build multimodal contents: original product images + recontextualization prompt
+    image_uris = tool_context.state.get("image_uris", "")
+    uris = [u.strip() for u in image_uris.split(",") if u.strip()]
+
+    content_parts = []
+    for uri in uris:
+        ext = uri.lower().rsplit(".", 1)[-1]
+        mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
+        content_parts.append(types.Part.from_uri(file_uri=uri, mime_type=mime))
+
+    attempt = tool_context.state.get("attempt", 1)
+    if attempt > 1:
+        # On retries, augment the prompt with the refined description and
+        # the specific attributes that failed so the model can correct them.
+        refined = tool_context.state.get("current_description", "")
+        failing = tool_context.state.get("failing_verdicts_text", "")
+        retry_prompt = (
+            f"{RECONTEXTUALIZATION_PROMPT}\n\n"
+            f"IMPORTANT: A previous attempt failed fidelity checks. "
+            f"Pay extra attention to the following attributes that were NOT "
+            f"faithfully reproduced:\n{failing}\n\n"
+            f"Use this refined product description as guidance:\n{refined}"
+        )
+        content_parts.append(retry_prompt)
+    else:
+        content_parts.append(RECONTEXTUALIZATION_PROMPT)
+
     response = client.models.generate_content(
         model=IMAGE_GEN_MODEL,
-        contents=description,
+        contents=content_parts,
         config=types.GenerateContentConfig(
             response_modalities=["IMAGE", "TEXT"],
         ),
