@@ -16,7 +16,7 @@ Once the prerequisites have been met and the user parameters are specified, user
 
 A multi-agent pipeline that generates product images and evaluates their fidelity against the original using Gecko scoring. Products that fail the threshold are automatically retried (N times) and/or flagged for human review with results aggregated into a final report.
 
-![agent_flow.jpg](./agent/imgs/agent_flow.jpg)
+![agent_flow.jpg](./product_fidelity_agent/imgs/agent_flow.jpg)
 
   - For Each Product - outer loop container with Root Agent                                                                                                                             
   - Sequence Agent - wraps the sequential workflow containing:                                                                                                                          
