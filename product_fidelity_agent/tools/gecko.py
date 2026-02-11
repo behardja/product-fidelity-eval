@@ -1,9 +1,15 @@
+import time
+
 import pandas as pd
 from vertexai import Client as VertexClient
 from vertexai import types as vertex_types
+from google.genai.errors import ClientError
 from google.adk.tools.tool_context import ToolContext
 
 from ..config import PROJECT_ID, LOCATION, PASSING_THRESHOLD, MAX_RETRIES
+
+RUBRIC_MAX_RETRIES = 3
+RUBRIC_RETRY_DELAY = 10  # seconds
 
 
 def run_gecko_evaluation(
@@ -30,12 +36,45 @@ def run_gecko_evaluation(
         {"prompt": [prompt], "response": [response_data]}
     )
 
-    # Generate rubrics
-    data_with_rubrics = vertex_client.evals.generate_rubrics(
-        src=eval_dataset,
-        rubric_group_name="gecko_image_rubrics",
-        predefined_spec_name=vertex_types.RubricMetric.GECKO_TEXT2IMAGE,
-    )
+    # Generate rubrics with retry on rate-limit (429) errors
+    data_with_rubrics = None
+    for rubric_attempt in range(1, RUBRIC_MAX_RETRIES + 1):
+        try:
+            data_with_rubrics = vertex_client.evals.generate_rubrics(
+                src=eval_dataset,
+                rubric_group_name="gecko_image_rubrics",
+                predefined_spec_name=vertex_types.RubricMetric.GECKO_TEXT2IMAGE,
+            )
+            # Verify rubrics were actually generated (the SDK may silently
+            # swallow errors and return data with empty rubric content)
+            if isinstance(data_with_rubrics, pd.DataFrame):
+                df = data_with_rubrics
+            else:
+                df = getattr(data_with_rubrics, "eval_dataset_df", None)
+            if (
+                df is not None
+                and "rubric_groups" in df.columns
+                and len(df) > 0
+                and df["rubric_groups"].iloc[0]
+            ):
+                break
+            # Rubrics came back empty — treat as a transient failure
+            print(
+                f"Rubric generation returned empty results "
+                f"(attempt {rubric_attempt}/{RUBRIC_MAX_RETRIES}), retrying..."
+            )
+            if rubric_attempt < RUBRIC_MAX_RETRIES:
+                time.sleep(RUBRIC_RETRY_DELAY)
+        except ClientError as e:
+            if e.status_code == 429 and rubric_attempt < RUBRIC_MAX_RETRIES:
+                print(
+                    f"Rubric generation rate-limited "
+                    f"(attempt {rubric_attempt}/{RUBRIC_MAX_RETRIES}), "
+                    f"retrying in {RUBRIC_RETRY_DELAY}s..."
+                )
+                time.sleep(RUBRIC_RETRY_DELAY)
+            else:
+                raise
 
     # Evaluate
     eval_result = vertex_client.evals.evaluate(
@@ -48,8 +87,22 @@ def run_gecko_evaluation(
     metric_data = case.response_candidate_results[0].metric_results
     metric_key = list(metric_data.keys())[0]
     data = metric_data[metric_key]
-    score = data.score if data.score is not None else 0.0
+    score = data.score
     verdicts = data.rubric_verdicts
+
+    # Detect evaluation infrastructure failures: if score is None and there
+    # are no verdicts, the eval didn't actually run (e.g. missing rubrics).
+    if score is None and not verdicts:
+        return {
+            "status": "error",
+            "message": (
+                "Evaluation infrastructure error: no score or verdicts "
+                "returned. This is likely due to a transient rate-limit "
+                "on the judge model. Please retry."
+            ),
+        }
+
+    score = score if score is not None else 0.0
 
     passing = []
     failing = []

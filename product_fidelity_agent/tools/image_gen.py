@@ -15,6 +15,9 @@ RECONTEXTUALIZATION_PROMPT = (
     "For example, if the product is a bag, the image should show the bag in a "
     "natural ad or professional photo setting. If the product is a dress, the "
     "image should show the dress in a natural model photo setting. "
+    "If there is a person in the original product image, create a variation "
+    "of the person with the product without copying the exact same pose and "
+    "environment as in the original image. "
     "Keep the product exactly as it is — do not alter its design, colors, "
     "logos, or any visual details."
 )
