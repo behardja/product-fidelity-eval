@@ -23,7 +23,21 @@ def generate_description(image_uris: str, tool_context: ToolContext) -> dict:
     Returns:
         dict with 'description' containing the generated ground-truth text.
     """
-    client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
+    client = genai.Client(
+        vertexai=True,
+        project=PROJECT_ID,
+        location=LOCATION,
+        http_options=types.HttpOptions(
+            timeout=60 * 1000,
+            retry_options=types.HttpRetryOptions(
+                attempts=5,
+                initial_delay=1.0,
+                jitter=0.3,
+                max_delay=20.0,
+                http_status_codes=[408, 429, 500, 502, 503, 504],
+            ),
+        ),
+    )
 
     system_instruction = _load_prompt("description_system.txt")
     user_prompt = _load_prompt("description_user.txt")
@@ -68,7 +82,21 @@ def refine_description(
     Returns:
         dict with 'refined_description' containing the updated text.
     """
-    client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
+    client = genai.Client(
+        vertexai=True,
+        project=PROJECT_ID,
+        location=LOCATION,
+        http_options=types.HttpOptions(
+            timeout=60 * 1000,
+            retry_options=types.HttpRetryOptions(
+                attempts=5,
+                initial_delay=1.0,
+                jitter=0.3,
+                max_delay=20.0,
+                http_status_codes=[408, 429, 500, 502, 503, 504],
+            ),
+        ),
+    )
 
     refinement_prompt = f"""You are refining a product description for text-to-image generation.
 

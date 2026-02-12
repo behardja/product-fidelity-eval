@@ -1,8 +1,10 @@
 import re
+import uuid
 
 from google.genai import types
 
-from .tools.gcs import image_to_base64
+from .config import BUCKET_NAME
+from .tools.gcs import image_to_base64, write_to_gcs
 
 
 def _get_text(llm_response):
@@ -56,6 +58,71 @@ def inject_generated_image(callback_context, llm_response):
 
     for part in parts_to_append:
         llm_response.content.parts.append(part)
+    return None
+
+
+def extract_uploaded_images(callback_context, llm_request):
+    """before_model_callback: detect user-uploaded images, save to GCS.
+
+    When a user uploads images directly in the ADK chat, they arrive as
+    inline_data parts. This callback writes them to GCS and replaces the
+    inline data with a text placeholder containing the GCS URI, so the
+    root agent can parse and use it like any other GCS URI.
+    """
+    for content in llm_request.contents:
+        if content.role != "user":
+            continue
+        new_parts = []
+        for part in content.parts:
+            if hasattr(part, "inline_data") and part.inline_data is not None:
+                data = part.inline_data.data
+                mime = part.inline_data.mime_type or "image/png"
+                ext = mime.split("/")[-1]
+                if ext == "jpeg":
+                    ext = "jpg"
+                filename = f"{uuid.uuid4().hex[:8]}.{ext}"
+                gcs_uri = f"gs://{BUCKET_NAME}/uploads/{filename}"
+                write_to_gcs(data, gcs_uri)
+                new_parts.append(
+                    types.Part(text=f"[Uploaded image saved to: {gcs_uri}]")
+                )
+            else:
+                new_parts.append(part)
+        content.parts = new_parts
+    return None
+
+
+def save_product_results(callback_context):
+    """after_agent_callback: save evaluation results and reset per-product state.
+
+    Called after EvaluationPipeline completes. Appends the current product's
+    results to the all_products accumulator and resets per-product state keys
+    so the next product starts clean.
+    """
+    all_products = callback_context.state.get("all_products", [])
+    all_products.append({
+        "sku_id": callback_context.state.get("sku_id"),
+        "image_uris": callback_context.state.get("image_uris"),
+        "ground_truth_description": callback_context.state.get("ground_truth_description"),
+        "evaluation_history": callback_context.state.get("evaluation_history", []),
+        "evaluation_passed": callback_context.state.get("evaluation_passed", False),
+    })
+    callback_context.state["all_products"] = all_products
+
+    # Reset per-product state for next iteration
+    callback_context.state["sku_id"] = None
+    callback_context.state["image_uris"] = None
+    callback_context.state["ground_truth_description"] = None
+    callback_context.state["current_description"] = None
+    callback_context.state["evaluation_history"] = []
+    callback_context.state["evaluation_passed"] = False
+    callback_context.state["attempt"] = 1
+    callback_context.state["gecko_score"] = None
+    callback_context.state["rubric_verdicts"] = None
+    callback_context.state["failing_verdicts_text"] = None
+    callback_context.state["candidate_image_uri"] = None
+    callback_context.state["_reference_images_shown"] = False
+
     return None
 
 

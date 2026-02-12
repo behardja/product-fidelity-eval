@@ -6,23 +6,14 @@ from google.adk.tools.tool_context import ToolContext
 from .gcs import image_to_base64
 
 
-def create_html_report(tool_context: ToolContext) -> dict:
-    """Generate an HTML evaluation report from the pipeline results.
-
-    Reads all required data from the tool context state:
-    - sku_id, ground_truth_description, image_uris
-    - evaluation_history (list of attempt results)
-    - evaluation_passed (bool)
-
-    Returns:
-        dict with 'report_path' and 'summary'.
-    """
-    sku_id = tool_context.state.get("sku_id", "unknown")
-    ground_truth = tool_context.state.get("ground_truth_description", "")
-    source_uris_raw = tool_context.state.get("image_uris", "")
+def _build_product_section(product: dict) -> str:
+    """Build the HTML section for a single product."""
+    sku_id = product.get("sku_id", "unknown")
+    ground_truth = product.get("ground_truth_description", "")
+    source_uris_raw = product.get("image_uris", "")
     source_uris = [u.strip() for u in source_uris_raw.split(",") if u.strip()]
-    history = tool_context.state.get("evaluation_history", [])
-    passed = tool_context.state.get("evaluation_passed", False)
+    history = product.get("evaluation_history", [])
+    passed = product.get("evaluation_passed", False)
 
     # --- Source images HTML ---
     source_images_html = ""
@@ -117,19 +108,65 @@ def create_html_report(tool_context: ToolContext) -> dict:
     result_label = "PASSED" if passed else "NEEDS REVIEW"
     result_color = "#188038" if passed else "#d93025"
 
+    return f"""
+    <div class="product-section">
+      <h2 class="product-header" style="color:{result_color};">
+        {html.escape(sku_id)} &mdash; {result_label} (Score: {final_score:.2f})
+      </h2>
+      <div class="meta">
+        <div class="meta-images">{source_images_html}</div>
+        <div class="meta-prompt">{html.escape(ground_truth)}</div>
+      </div>
+      {attempts_html}
+    </div>
+    """
+
+
+def create_html_report(tool_context: ToolContext) -> dict:
+    """Generate a combined HTML evaluation report for all evaluated products.
+
+    Reads from tool_context.state["all_products"] (list of product result dicts).
+
+    Returns:
+        dict with 'report_path' and 'summary'.
+    """
+    all_products = tool_context.state.get("all_products", [])
+
+    if not all_products:
+        return {"status": "error", "message": "No products to report on."}
+
+    # Build per-product sections
+    product_sections = []
+    summaries = []
+    for product in all_products:
+        product_sections.append(_build_product_section(product))
+        sku_id = product.get("sku_id", "unknown")
+        history = product.get("evaluation_history", [])
+        passed = product.get("evaluation_passed", False)
+        final_score = history[-1]["score"] if history else 0.0
+        result_label = "PASSED" if passed else "NEEDS REVIEW"
+        summaries.append(
+            f"SKU: {sku_id} | Result: {result_label} | "
+            f"Score: {final_score:.2f} | Attempts: {len(history)}"
+        )
+
+    sections_html = "\n<hr class='product-divider'>\n".join(product_sections)
+
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Product Fidelity Report — {html.escape(sku_id)}</title>
+<title>Product Fidelity Report</title>
 <style>
   body {{ font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif; margin:0; background:#f4f4f4; color:#333; }}
   .container {{ max-width:1100px; margin:30px auto; background:#fff; padding:30px; border-radius:8px; box-shadow:0 2px 15px rgba(0,0,0,.08); }}
   h1 {{ color:#1a73e8; margin-top:0; border-bottom:2px solid #eee; padding-bottom:10px; }}
+  .product-section {{ margin-bottom:30px; }}
+  .product-header {{ margin-top:0; padding-bottom:8px; border-bottom:1px solid #eee; }}
+  .product-divider {{ border:none; border-top:3px solid #e0e0e0; margin:30px 0; }}
   .meta {{ display:flex; gap:20px; margin-bottom:20px; background:#f8f9fa; padding:15px; border-radius:6px; }}
   .meta-images {{ display:flex; gap:12px; flex-wrap:wrap; }}
   .meta-prompt {{ flex:1; font-size:.9em; line-height:1.5; max-height:200px; overflow-y:auto; white-space:pre-wrap; background:#fff; padding:12px; border:1px solid #eee; border-radius:4px; }}
-  .result-bar {{ padding:14px 20px; border-radius:5px; margin-bottom:20px; font-size:1.1em; font-weight:bold; color:#fff; background:{result_color}; }}
   .attempt {{ border:1px solid #e0e0e0; border-radius:8px; margin-bottom:10px; overflow:hidden; }}
   .attempt[open] {{ box-shadow:0 2px 8px rgba(0,0,0,.1); }}
   .attempt summary {{ padding:14px 18px; background:#fafafa; cursor:pointer; display:flex; align-items:center; gap:12px; list-style:none; }}
@@ -155,23 +192,18 @@ def create_html_report(tool_context: ToolContext) -> dict:
 <body>
 <div class="container">
   <h1>Product Fidelity Report</h1>
-  <div class="result-bar">{html.escape(sku_id)} — {result_label} (Score: {final_score:.2f})</div>
-  <div class="meta">
-    <div class="meta-images">{source_images_html}</div>
-    <div class="meta-prompt">{html.escape(ground_truth)}</div>
-  </div>
-  {attempts_html}
+  {sections_html}
 </div>
 </body>
 </html>"""
 
-    filename = f"gecko_report_{sku_id}.html"
+    filename = "product_candidate_report.html"
     with open(filename, "w", encoding="utf-8") as f:
         f.write(html_content)
 
     summary = (
-        f"SKU: {sku_id} | Result: {result_label} | "
-        f"Final Score: {final_score:.2f} | Attempts: {len(history)}"
+        f"Total products: {len(all_products)}\n"
+        + "\n".join(summaries)
     )
 
     return {"status": "success", "report_path": filename, "summary": summary}
