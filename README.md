@@ -30,7 +30,7 @@ Once the prerequisites have been met and the user parameters are specified, user
 
 ### Front-End App
 
-* [app](./app Folder) :
+* [app Folder](./app) :
 
 A dashboard with two panels: a GCS image browser on the left and an agent chat on the right. Select a mode, then a product image from GCS or uploaded locally, click Evaluate, and watch the agent pipeline run in real time.
 
@@ -70,7 +70,7 @@ The app opens at [http://localhost:3000](http://localhost:3000).
 
 ### Agent
 
-* [product_fidelity_agent](./product_fidelity_agent Folder) :
+* [product_fidelity_agent Folder](./product_fidelity_agent) :
 A multi-agent pipeline built on Google ADK that generates product images (or videos) and evaluates their fidelity against the original using Gecko scoring. Products that fail the threshold are automatically retried (up to N times) with refined descriptions, and/or flagged for human review, with results aggregated into a final report.
 
 ![agent_flow.jpg](./product_fidelity_agent/imgs/agent_flow.png)
