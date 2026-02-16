@@ -1,26 +1,44 @@
 import React, { useState } from "react";
 import ImageCard from "./ImageCard";
 import { listImages, type GcsListResponse } from "../services/gcsClient";
+import type { AppMode } from "./Header";
 
 interface ImageBrowserProps {
   selectedUri: string | null;
   onSelectImage: (uri: string) => void;
   onEvaluate: () => void;
+  mode?: AppMode;
+  checkedUris?: Set<string>;
+  onToggleCheck?: (uri: string) => void;
+  onSelectAll?: () => void;
+  onDeselectAll?: () => void;
+  onRunBatch?: () => void;
+  currentPrefix?: string;
+  onPrefixChange?: (prefix: string) => void;
 }
 
 const ImageBrowser: React.FC<ImageBrowserProps> = ({
   selectedUri,
   onSelectImage,
   onEvaluate,
+  mode = "agent",
+  checkedUris,
+  onToggleCheck,
+  onSelectAll,
+  onDeselectAll,
+  onRunBatch,
+  currentPrefix,
+  onPrefixChange,
 }) => {
-  const [prefix, setPrefix] = useState("");
+  const [prefix, setPrefix] = useState(currentPrefix ?? "");
   const [data, setData] = useState<GcsListResponse | null>(null);
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const isBatch = mode === "batch";
+
   const browse = async (p = page) => {
-    // Strip gs:// if user includes it
     let cleanPrefix = prefix.trim();
     if (cleanPrefix.startsWith("gs://")) {
       cleanPrefix = cleanPrefix.slice(5);
@@ -33,6 +51,7 @@ const ImageBrowser: React.FC<ImageBrowserProps> = ({
       const result = await listImages(cleanPrefix, p);
       setData(result);
       setPage(p);
+      onPrefixChange?.(prefix.trim());
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to list images");
     } finally {
@@ -51,8 +70,20 @@ const ImageBrowser: React.FC<ImageBrowserProps> = ({
     if (data && page < data.total_pages - 1) browse(page + 1);
   };
 
-  // Derive displayed prefix for subtitle
   const displayPrefix = prefix.startsWith("gs://") ? prefix : `gs://${prefix}`;
+
+  const allChecked =
+    data && data.images.length > 0 && checkedUris
+      ? data.images.every((uri) => checkedUris.has(uri))
+      : false;
+
+  const handleSelectAllToggle = () => {
+    if (allChecked) {
+      onDeselectAll?.();
+    } else {
+      onSelectAll?.();
+    }
+  };
 
   return (
     <div className="flex flex-col w-full lg:w-7/12 xl:w-2/3 border-r border-slate-200 dark:border-border-dark bg-slate-50 dark:bg-[#111318] overflow-hidden">
@@ -94,6 +125,39 @@ const ImageBrowser: React.FC<ImageBrowserProps> = ({
         </div>
       </div>
 
+      {/* Batch toolbar */}
+      {isBatch && data && data.images.length > 0 && (
+        <div className="flex items-center justify-between px-6 py-2 border-b border-slate-200 dark:border-border-dark bg-white dark:bg-[#111318]">
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700 dark:text-slate-300">
+              <input
+                type="checkbox"
+                checked={allChecked}
+                onChange={handleSelectAllToggle}
+                className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary"
+              />
+              Select All
+            </label>
+            {checkedUris && checkedUris.size > 0 && (
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                {checkedUris.size} image{checkedUris.size !== 1 ? "s" : ""}{" "}
+                selected
+              </span>
+            )}
+          </div>
+          <button
+            onClick={onRunBatch}
+            disabled={!checkedUris || checkedUris.size === 0}
+            className="flex items-center gap-2 h-8 px-3 rounded-lg bg-primary text-white text-xs font-bold hover:bg-blue-600 transition-colors shadow-sm disabled:opacity-40"
+          >
+            <span className="material-symbols-outlined text-[16px]">
+              play_arrow
+            </span>
+            Run Batch
+          </button>
+        </div>
+      )}
+
       {/* Grid */}
       <div className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-700">
         {loading && (
@@ -119,6 +183,9 @@ const ImageBrowser: React.FC<ImageBrowserProps> = ({
                 uri={uri}
                 selected={uri === selectedUri}
                 onSelect={() => onSelectImage(uri)}
+                mode={mode}
+                checked={checkedUris?.has(uri) ?? false}
+                onToggleCheck={() => onToggleCheck?.(uri)}
               />
             ))}
           </div>
@@ -133,8 +200,8 @@ const ImageBrowser: React.FC<ImageBrowserProps> = ({
         )}
       </div>
 
-      {/* Selected image info + Evaluate */}
-      {selectedUri && (
+      {/* Selected image info + Evaluate (agent mode only) */}
+      {!isBatch && selectedUri && (
         <div className="px-6 py-3 border-t border-slate-200 dark:border-border-dark bg-white dark:bg-[#111318] flex items-center justify-between gap-4">
           <div className="min-w-0">
             <p className="text-xs text-slate-500 dark:text-slate-400">

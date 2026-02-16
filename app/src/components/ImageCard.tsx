@@ -1,10 +1,14 @@
 import React from "react";
 import { thumbnailUrl } from "../services/gcsClient";
+import type { AppMode } from "./Header";
 
 interface ImageCardProps {
   uri: string;
   selected: boolean;
   onSelect: () => void;
+  mode?: AppMode;
+  checked?: boolean;
+  onToggleCheck?: () => void;
 }
 
 function skuFromUri(uri: string): string {
@@ -12,19 +16,40 @@ function skuFromUri(uri: string): string {
   return filename.replace(/\.[^.]+$/, "");
 }
 
-const ImageCard: React.FC<ImageCardProps> = ({ uri, selected, onSelect }) => {
+const ImageCard: React.FC<ImageCardProps> = ({
+  uri,
+  selected,
+  onSelect,
+  mode = "agent",
+  checked = false,
+  onToggleCheck,
+}) => {
   const sku = skuFromUri(uri);
+  const isBatch = mode === "batch";
+
+  const handleClick = () => {
+    if (isBatch && onToggleCheck) {
+      onToggleCheck();
+    } else {
+      onSelect();
+    }
+  };
 
   return (
     <div
-      onClick={onSelect}
+      onClick={handleClick}
       className={`group relative flex flex-col gap-2 p-2 rounded-xl cursor-pointer transition-all ${
-        selected
+        isBatch
+          ? checked
+            ? "bg-primary/10 border-2 border-primary"
+            : "border border-transparent hover:bg-slate-200 dark:hover:bg-surface-dark"
+          : selected
           ? "bg-primary/10 border-2 border-primary"
           : "border border-transparent hover:bg-slate-200 dark:hover:bg-surface-dark"
       }`}
     >
-      {selected && (
+      {/* Agent mode: checkmark indicator */}
+      {!isBatch && selected && (
         <div className="absolute top-3 right-3 z-10">
           <div className="w-6 h-6 rounded-full bg-primary text-white flex items-center justify-center shadow-md">
             <span className="material-symbols-outlined text-sm font-bold">
@@ -33,13 +58,35 @@ const ImageCard: React.FC<ImageCardProps> = ({ uri, selected, onSelect }) => {
           </div>
         </div>
       )}
+
+      {/* Batch mode: checkbox */}
+      {isBatch && (
+        <div className="absolute top-3 left-3 z-10">
+          <div
+            className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+              checked
+                ? "bg-primary border-primary"
+                : "bg-white/80 border-slate-400 group-hover:border-slate-600"
+            }`}
+          >
+            {checked && (
+              <span className="material-symbols-outlined text-white text-sm font-bold">
+                check
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="aspect-[4/5] w-full rounded-lg bg-slate-200 dark:bg-surface-dark overflow-hidden relative">
         <img
           src={thumbnailUrl(uri)}
           alt={sku}
           loading="lazy"
           className={`w-full h-full object-cover transition-opacity ${
-            selected ? "" : "opacity-80 group-hover:opacity-100"
+            (isBatch ? checked : selected)
+              ? ""
+              : "opacity-80 group-hover:opacity-100"
           }`}
         />
       </div>
@@ -47,7 +94,12 @@ const ImageCard: React.FC<ImageCardProps> = ({ uri, selected, onSelect }) => {
         <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
           {sku}
         </p>
-        {selected && <p className="text-xs text-primary font-medium">Selected</p>}
+        {!isBatch && selected && (
+          <p className="text-xs text-primary font-medium">Selected</p>
+        )}
+        {isBatch && checked && (
+          <p className="text-xs text-primary font-medium">Selected</p>
+        )}
       </div>
     </div>
   );
