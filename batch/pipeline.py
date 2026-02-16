@@ -517,15 +517,15 @@ def _build_product_section(product: dict) -> str:
                 )
 
         verdicts_html = "<ul class='rubric-list'>"
-        for v in passing:
-            verdicts_html += (
-                f"<li class='rubric-item rubric-pass'>"
-                f"<span class='icon'>&#10003;</span> {html_mod.escape(str(v))}</li>"
-            )
         for v in failing:
             verdicts_html += (
                 f"<li class='rubric-item rubric-fail'>"
                 f"<span class='icon'>&#10007;</span> {html_mod.escape(str(v))}</li>"
+            )
+        for v in passing:
+            verdicts_html += (
+                f"<li class='rubric-item rubric-pass'>"
+                f"<span class='icon'>&#10003;</span> {html_mod.escape(str(v))}</li>"
             )
         verdicts_html += "</ul>"
 

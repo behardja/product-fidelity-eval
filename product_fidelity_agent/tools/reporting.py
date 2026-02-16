@@ -3,7 +3,7 @@ import os
 
 from google.adk.tools.tool_context import ToolContext
 
-from .gcs import image_to_base64
+from .gcs import image_to_base64, media_to_base64
 
 
 def _build_product_section(product: dict) -> str:
@@ -56,16 +56,24 @@ def _build_product_section(product: dict) -> str:
             else "score-low"
         )
 
-        # Candidate image
+        # Candidate media (image or video)
         img_html = ""
         if image_uri:
-            b64_data, mime_type = image_to_base64(image_uri)
+            b64_data, mime_type, media_category = media_to_base64(image_uri)
             if b64_data:
-                img_html = (
-                    f'<img src="data:{mime_type};base64,{b64_data}" '
-                    f'alt="Attempt {attempt_num}" '
-                    f'style="max-width:100%;border-radius:4px;border:1px solid #eee;">'
-                )
+                if media_category == "video":
+                    img_html = (
+                        f'<video src="data:{mime_type};base64,{b64_data}" '
+                        f'controls '
+                        f'style="max-width:100%;border-radius:4px;border:1px solid #eee;">'
+                        f'</video>'
+                    )
+                else:
+                    img_html = (
+                        f'<img src="data:{mime_type};base64,{b64_data}" '
+                        f'alt="Attempt {attempt_num}" '
+                        f'style="max-width:100%;border-radius:4px;border:1px solid #eee;">'
+                    )
             else:
                 img_html = (
                     f'<div class="placeholder">Could not load: '
@@ -74,15 +82,15 @@ def _build_product_section(product: dict) -> str:
 
         # Verdicts
         verdicts_html = "<ul class='rubric-list'>"
-        for v in passing:
-            verdicts_html += (
-                f"<li class='rubric-item rubric-pass'>"
-                f"<span class='icon'>&#10003;</span> {html.escape(str(v))}</li>"
-            )
         for v in failing:
             verdicts_html += (
                 f"<li class='rubric-item rubric-fail'>"
                 f"<span class='icon'>&#10007;</span> {html.escape(str(v))}</li>"
+            )
+        for v in passing:
+            verdicts_html += (
+                f"<li class='rubric-item rubric-pass'>"
+                f"<span class='icon'>&#10003;</span> {html.escape(str(v))}</li>"
             )
         verdicts_html += "</ul>"
 
@@ -174,7 +182,7 @@ def create_html_report(tool_context: ToolContext) -> dict:
   .attempt-label {{ font-weight:600; }}
   .attempt-content {{ display:flex; gap:20px; padding:18px; }}
   .attempt-image {{ flex:0 0 250px; }}
-  .attempt-image img {{ max-width:100%; height:auto; }}
+  .attempt-image img, .attempt-image video {{ max-width:100%; height:auto; }}
   .attempt-verdicts {{ flex:1; }}
   .score-badge {{ display:inline-block; padding:4px 12px; border-radius:14px; font-weight:bold; font-size:.9em; }}
   .score-high {{ background:#e6f4ea; color:#188038; }}

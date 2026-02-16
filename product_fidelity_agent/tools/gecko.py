@@ -152,6 +152,141 @@ def run_gecko_evaluation(
     }
 
 
+def run_gecko_video_evaluation(
+    prompt: str, video_uri: str, tool_context: ToolContext
+) -> dict:
+    """Run Gecko text-to-video evaluation on a candidate video.
+
+    Args:
+        prompt: The ground-truth description to evaluate against.
+        video_uri: GCS URI of the candidate video to evaluate.
+
+    Returns:
+        dict with score, verdict counts, and lists of passing/failing verdicts.
+    """
+    vertex_client = VertexClient(project=PROJECT_ID, location=LOCATION)
+
+    response_data = {
+        "parts": [
+            {"file_data": {"mime_type": "video/mp4", "file_uri": video_uri}}
+        ],
+        "role": "model",
+    }
+    eval_dataset = pd.DataFrame(
+        {"prompt": [prompt], "response": [response_data]}
+    )
+
+    # Generate rubrics with retry on rate-limit (429) errors
+    data_with_rubrics = None
+    for rubric_attempt in range(1, RUBRIC_MAX_RETRIES + 1):
+        try:
+            data_with_rubrics = vertex_client.evals.generate_rubrics(
+                src=eval_dataset,
+                rubric_group_name="gecko_video_rubrics",
+                predefined_spec_name=vertex_types.RubricMetric.GECKO_TEXT2VIDEO,
+            )
+            if isinstance(data_with_rubrics, pd.DataFrame):
+                df = data_with_rubrics
+            else:
+                df = getattr(data_with_rubrics, "eval_dataset_df", None)
+            if (
+                df is not None
+                and "rubric_groups" in df.columns
+                and len(df) > 0
+                and df["rubric_groups"].iloc[0]
+            ):
+                break
+            print(
+                f"Rubric generation returned empty results "
+                f"(attempt {rubric_attempt}/{RUBRIC_MAX_RETRIES}), retrying..."
+            )
+            if rubric_attempt < RUBRIC_MAX_RETRIES:
+                time.sleep(RUBRIC_RETRY_DELAY)
+        except ClientError as e:
+            if e.status_code == 429 and rubric_attempt < RUBRIC_MAX_RETRIES:
+                print(
+                    f"Rubric generation rate-limited "
+                    f"(attempt {rubric_attempt}/{RUBRIC_MAX_RETRIES}), "
+                    f"retrying in {RUBRIC_RETRY_DELAY}s..."
+                )
+                time.sleep(RUBRIC_RETRY_DELAY)
+            else:
+                raise
+
+    # Evaluate
+    eval_result = vertex_client.evals.evaluate(
+        dataset=data_with_rubrics,
+        metrics=[vertex_types.RubricMetric.GECKO_TEXT2VIDEO],
+    )
+
+    # Extract results
+    case = eval_result.eval_case_results[0]
+    metric_data = case.response_candidate_results[0].metric_results
+    metric_key = list(metric_data.keys())[0]
+    data = metric_data[metric_key]
+    score = data.score
+    verdicts = data.rubric_verdicts
+
+    if score is None and not verdicts:
+        return {
+            "status": "error",
+            "message": (
+                "Evaluation infrastructure error: no score or verdicts "
+                "returned. This is likely due to a transient rate-limit "
+                "on the judge model. Please retry."
+            ),
+        }
+
+    score = score if score is not None else 0.0
+
+    passing = []
+    failing = []
+    if verdicts:
+        for v in verdicts:
+            raw_verdict = getattr(v, "verdict", False)
+            is_pass = str(raw_verdict).lower() == "true"
+            try:
+                text = v.evaluated_rubric.content.property.description
+            except AttributeError:
+                text = str(v)
+            if is_pass:
+                passing.append(text)
+            else:
+                failing.append(text)
+
+    # Store in state (same keys as image evaluation)
+    tool_context.state["gecko_score"] = score
+    tool_context.state["rubric_verdicts"] = {
+        "passing": passing,
+        "failing": failing,
+    }
+    tool_context.state["failing_verdicts_text"] = "\n".join(
+        f"- {v}" for v in failing
+    )
+
+    # Track history across attempts
+    history = tool_context.state.get("evaluation_history", [])
+    history.append(
+        {
+            "attempt": tool_context.state.get("attempt", 1),
+            "score": score,
+            "passing_verdicts": passing,
+            "failing_verdicts": failing,
+            "image_uri": video_uri,
+        }
+    )
+    tool_context.state["evaluation_history"] = history
+
+    return {
+        "status": "success",
+        "score": score,
+        "total_verdicts": len(passing) + len(failing),
+        "passing_count": len(passing),
+        "failing_count": len(failing),
+        "failing_verdicts": failing,
+    }
+
+
 def check_threshold(tool_context: ToolContext) -> dict:
     """Check if the current Gecko score meets the passing threshold.
 

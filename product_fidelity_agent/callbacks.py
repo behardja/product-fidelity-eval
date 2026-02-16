@@ -61,6 +61,50 @@ def inject_generated_image(callback_context, llm_response):
     return None
 
 
+def inject_generated_video(callback_context, llm_response):
+    """after_model_callback: inject candidate video URI as text into the response.
+
+    Reads the candidate_video_uri from state (set by generate_product_video tool)
+    and appends a text placeholder with the GCS URI since videos are too large
+    for inline base64 rendering.
+
+    On the first attempt, also displays the original reference image(s) for
+    comparison.
+    """
+    if not _get_text(llm_response):
+        return None
+
+    parts_to_append = []
+
+    # On first attempt, show the original reference image(s)
+    if not callback_context.state.get("_reference_images_shown"):
+        image_uris = callback_context.state.get("image_uris", "")
+        uris = [u.strip() for u in image_uris.split(",") if u.strip()]
+        for uri in uris:
+            b64_data, mime_type = image_to_base64(uri)
+            if b64_data:
+                name = uri.split("/")[-1]
+                md = f"![{name}](data:{mime_type};base64,{b64_data})"
+                parts_to_append.append(
+                    types.Part(text=f"\n\n**Reference:** {name}\n{md}\n")
+                )
+        callback_context.state["_reference_images_shown"] = True
+
+    # Inject the candidate video URI as text
+    candidate_uri = callback_context.state.get("candidate_video_uri")
+    if candidate_uri:
+        attempt = callback_context.state.get("attempt", 1)
+        parts_to_append.append(
+            types.Part(
+                text=f"\n\n**Candidate Video (attempt {attempt}):** {candidate_uri}\n"
+            )
+        )
+
+    for part in parts_to_append:
+        llm_response.content.parts.append(part)
+    return None
+
+
 def extract_uploaded_images(callback_context, llm_request):
     """before_model_callback: detect user-uploaded images, save to GCS.
 
@@ -121,6 +165,7 @@ def save_product_results(callback_context):
     callback_context.state["rubric_verdicts"] = None
     callback_context.state["failing_verdicts_text"] = None
     callback_context.state["candidate_image_uri"] = None
+    callback_context.state["candidate_video_uri"] = None
     callback_context.state["_reference_images_shown"] = False
 
     return None
