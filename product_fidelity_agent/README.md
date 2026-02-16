@@ -1,6 +1,6 @@
 # Product Fidelity Eval — Multi-Agent System
 
-A Google ADK agent pipeline that evaluates whether AI-generated product images faithfully reproduce an original product. It generates a ground-truth text description from reference images, uses that description to generate candidate images, scores them with Gecko, and iteratively refines the description until the fidelity threshold is met or retries are exhausted.
+A Google ADK agent pipeline that evaluates whether AI-generated product images and videos faithfully reproduce an original product. It generates a ground-truth text description from reference images, uses that description to generate candidate images (or videos), scores them with Gecko, and iteratively refines the description until the fidelity threshold is met or retries are exhausted.
 
 ## Agent Architecture
 
@@ -51,14 +51,17 @@ product_fidelity_agent/
 ├── agents/
 │   ├── description_agent.py  # Ground-truth description generation
 │   ├── image_gen_agent.py    # Candidate image generation
-│   ├── evaluation_agent.py   # Gecko scoring + threshold check
+│   ├── evaluation_agent.py   # Gecko TEXT2IMAGE scoring + threshold check
+│   ├── video_gen_agent.py    # Candidate video generation (Veo)
+│   ├── video_evaluation_agent.py  # Gecko TEXT2VIDEO scoring + threshold check
 │   ├── refinement_agent.py   # Description refinement on retry
 │   └── report_agent.py       # HTML report generation
 ├── tools/
 │   ├── gcs.py                # read_from_gcs, write_to_gcs, image_to_base64
 │   ├── gemini.py             # generate_description, refine_description
 │   ├── image_gen.py          # generate_product_image
-│   ├── gecko.py              # run_gecko_evaluation, check_threshold
+│   ├── gecko.py              # run_gecko_evaluation, run_gecko_video_evaluation, check_threshold
+│   ├── video_gen.py          # generate_product_video (Veo API)
 │   └── reporting.py          # create_html_report
 └── prompts/
     ├── description_system.txt
@@ -81,6 +84,14 @@ All data passes between agents via `tool_context.state`. Key state variables:
 | `evaluation_history` | EvaluationAgent (appended each attempt) | ReportAgent |
 | `evaluation_passed` | check_threshold | ReportAgent |
 | `attempt` | InputAgent / RefinementAgent | ImageGenAgent, check_threshold |
+| `candidate_video_uri` | VideoGenAgent | VideoEvaluationAgent |
+
+## Video Pipeline
+
+The video pipeline follows the same architecture as the image pipeline but swaps in video-specific agents:
+
+- **`VideoGenAgent`** — Generates a candidate product video using the Veo API (`veo-3.1-generate-preview`) with the reference product image as an asset reference. Configured via `VIDEO_ASPECT_RATIO`, `VIDEO_DURATION_SECONDS`, and other constants in `config.py`.
+- **`VideoEvaluationAgent`** — Runs Gecko `TEXT2VIDEO` evaluation against the ground-truth description and calls the same `check_threshold` tool for the pass/retry/fail decision.
 
 ## Key Design Decisions
 
@@ -149,23 +160,25 @@ Pillow
 
 ## Configuration
 
-Set via environment variables or defaults in `config.py`:
+Set via environment variables or edit the defaults in `config.py`. **You must update `PROJECT_ID` and `BUCKET_NAME` to match your own GCP environment:**
 
 | Variable | Default | Description |
 |---|---|---|
-| `PROJECT_ID` | `cpg-cdp` | GCP project |
+| `PROJECT_ID` | `cpg-cdp` | **Set to your GCP project ID** |
 | `LOCATION` | `us-central1` | GCP region |
-| `BUCKET_NAME` | `sandbox-401718-product-fidelity-eval` | GCS bucket for images |
+| `BUCKET_NAME` | `sandbox-401718-product-fidelity-eval` | **Set to your GCS bucket** |
 
 Model and threshold constants in `config.py`:
 
-| Constant | Value |
-|---|---|
-| `DESCRIPTION_MODEL` | `gemini-3-pro-preview` |
-| `IMAGE_GEN_MODEL` | `gemini-3-pro-image-preview` |
-| `AGENT_MODEL` | `gemini-3-pro-preview` |
-| `PASSING_THRESHOLD` | `0.7` |
-| `MAX_RETRIES` | `3` |
+| Constant | Value | Description |
+|---|---|---|
+| `DESCRIPTION_MODEL` | `gemini-3-pro-preview` | Ground-truth description generation |
+| `IMAGE_GEN_MODEL` | `gemini-3-pro-image-preview` | Candidate image generation |
+| `VIDEO_GEN_MODEL` | `veo-3.1-generate-preview` | Candidate video generation |
+| `AGENT_MODEL` | `gemini-3-pro-preview` | LlmAgent orchestration |
+| `PASSING_THRESHOLD` | `0.7` | Minimum Gecko score to pass |
+| `MAX_RETRIES` | `3` | Max refinement attempts (image) |
+| `VIDEO_MAX_RETRIES` | `3` | Max refinement attempts (video) |
 
 ## To Do
 
@@ -181,5 +194,5 @@ adk web agent
 Example prompt:
 
 ```
-Generate Candidate images and Evaluate product dress_pattern with images gs://sandbox-401718-product-fidelity-evals/dress_pattern.png
+Generate Candidate images and Evaluate product dress_pattern with images gs://<BUCKET_NAME>/dress_pattern.png
 ```
