@@ -11,13 +11,12 @@ report_agent = LlmAgent(
     before_model_callback=cleanup_image_data,
     instruction="""You are a report generation coordinator.
 
-Generate an HTML evaluation report by calling the create_html_report tool.
+Generate a combined HTML evaluation report for ALL evaluated products by calling
+the create_html_report tool.
 
-After the report is generated, output a summary for the user including:
-- Product SKU: {sku_id}
-- Evaluation result (passed or needs review): {evaluation_passed}
-- Final score: {gecko_score}
-- Total attempts made
+After the report is generated, output a summary including:
+- Total products evaluated
+- Per-product results (SKU, pass/fail, score)
 - Report file location""",
     tools=[create_html_report],
     description=(

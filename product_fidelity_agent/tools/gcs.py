@@ -30,6 +30,54 @@ def write_to_gcs(data: bytes, gcs_uri: str) -> str:
     return gcs_uri
 
 
+_VIDEO_EXTENSIONS = {"mp4", "mov", "webm"}
+_MIME_MAP = {
+    "png": ("image/png", "image"),
+    "jpg": ("image/jpeg", "image"),
+    "jpeg": ("image/jpeg", "image"),
+    "gif": ("image/gif", "image"),
+    "webp": ("image/webp", "image"),
+    "mp4": ("video/mp4", "video"),
+    "mov": ("video/quicktime", "video"),
+    "webm": ("video/webm", "video"),
+}
+
+
+def media_to_base64(
+    gcs_uri: str,
+) -> tuple[str | None, str | None, str | None]:
+    """Load media (image or video) from GCS and return (base64_data, mime_type, media_category).
+
+    For images, resizes and compresses to JPEG (same as image_to_base64).
+    For videos, returns raw bytes base64-encoded without transformation.
+
+    Returns (None, None, None) if the media cannot be loaded.
+    """
+    try:
+        ext = gcs_uri.lower().rsplit(".", 1)[-1]
+        mime_type, media_category = _MIME_MAP.get(ext, ("image/png", "image"))
+
+        media_bytes = read_from_gcs(gcs_uri)
+
+        if media_category == "video":
+            b64_data = base64.b64encode(media_bytes).decode("utf-8")
+            return b64_data, mime_type, media_category
+
+        # Image path: resize and compress
+        img = Image.open(BytesIO(media_bytes)).convert("RGB")
+        max_width = 600
+        img = img.resize(
+            (max_width, int(img.height * (max_width / img.width)))
+        )
+        buffer = BytesIO()
+        img.save(buffer, "JPEG", quality=70)
+        b64_data = base64.b64encode(buffer.getvalue()).decode("utf-8")
+        return b64_data, "image/jpeg", "image"
+    except Exception as e:
+        print(f"Warning: Could not load media {gcs_uri}: {e}")
+        return None, None, None
+
+
 def image_to_base64(
     gcs_uri: str, max_width: int = 600, quality: int = 70
 ) -> tuple[str | None, str | None]:

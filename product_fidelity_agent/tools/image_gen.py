@@ -32,7 +32,21 @@ def generate_product_image(tool_context: ToolContext) -> dict:
     Returns:
         dict with 'image_uri' containing the GCS URI of the generated image.
     """
-    client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
+    client = genai.Client(
+        vertexai=True,
+        project=PROJECT_ID,
+        location=LOCATION,
+        http_options=types.HttpOptions(
+            timeout=60 * 1000,
+            retry_options=types.HttpRetryOptions(
+                attempts=5,
+                initial_delay=1.0,
+                jitter=0.3,
+                max_delay=20.0,
+                http_status_codes=[408, 429, 500, 502, 503, 504],
+            ),
+        ),
+    )
 
     # Build multimodal contents: original product images + recontextualization prompt
     image_uris = tool_context.state.get("image_uris", "")
