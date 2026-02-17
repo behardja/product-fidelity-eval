@@ -80,7 +80,7 @@ A multi-agent pipeline built on Google ADK that generates product images (or vid
   - For Each Product - outer loop container with Root Agent
   - Sequence Agent - wraps the sequential workflow containing:
     - Step 1: Parallel Agent - runs both description and image/video generation concurrently
-    - Step 2: Product Fidelity Evaluation Agent - scores with Gecko (`TEXT2IMAGE` or `TEXT2VIDEO`)
+    - Step 2: Product Fidelity Evaluation Agent - scores with Gecko
     - Threshold decision - routes to pass/retry/fail
     - Retry loop - feeds back to generation with refined description
   - Final Report - aggregates all results
