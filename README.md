@@ -98,3 +98,8 @@ The agent supports both image and video evaluation pipelines. See the [agent REA
 The pipeline results include a report where users can review verdicts for attributes of the product.
 
 ![report](./product_fidelity_agent/imgs/report.GIF)
+
+### References
+
+- [Google ADK](https://github.com/google/adk-python)
+- [Gecko](https://arxiv.org/abs/2404.16820))
