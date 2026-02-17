@@ -36,6 +36,8 @@ A dashboard with two panels: a GCS image browser on the left and an agent chat o
 
 While Agent Mode supports interactive, human-in-the-loop evaluation of individual products, Batch Mode provides an automated offline option. The user points to a GCS bucket containing product reference images, selects which images to process (or checks a box to run the full bucket), and the system feeds all selected images through the existing evaluation pipeline asynchronously.
 
+![app](./product_fidelity_agent/imgs/app.GIF)
+
 #### Running the App
 
 **1. Install front-end dependencies:**
@@ -91,3 +93,8 @@ The agent supports both image and video evaluation pipelines. See the [agent REA
 
 * [notebooks/product_fidelity_eval_video.ipynb](./notebooks/product_fidelity_eval_video.ipynb) — Extends the same approach to **video** assets, using Gecko to evaluate candidate videos generated from reference product images via Veo.
 
+### Report
+
+The pipeline results include a report where users can review verdicts for attributes of the product.
+
+![report](./product_fidelity_agent/imgs/report.GIF)
