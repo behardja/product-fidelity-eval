@@ -3,7 +3,7 @@ from google.adk.agents.llm_agent import LlmAgent
 from google.adk.tools.tool_context import ToolContext
 
 from .config import AGENT_MODEL, MAX_RETRIES, VIDEO_MAX_RETRIES
-from .callbacks import extract_uploaded_images, save_product_results, cleanup_image_data, normalize_tool_args
+from .callbacks import extract_uploaded_images, log_agent_activity, save_product_results, cleanup_image_data, normalize_tool_args
 from .agents.description_agent import description_agent
 from .agents.image_gen_agent import image_gen_agent
 from .agents.evaluation_agent import evaluation_agent
@@ -40,6 +40,9 @@ def initialize_evaluation(
     tool_context.state["attempt"] = 1
     tool_context.state["evaluation_history"] = []
     tool_context.state["evaluation_passed"] = False
+    tool_context.state["candidate_image_uri"] = ""
+    tool_context.state["candidate_video_uri"] = ""
+    tool_context.state["ground_truth_description"] = ""
     return {
         "status": "initialized",
         "sku_id": sku_id,
@@ -57,6 +60,7 @@ video_description_agent = LlmAgent(
     name="VideoDescriptionAgent",
     model=AGENT_MODEL,
     include_contents="default",
+    before_model_callback=log_agent_activity,
     instruction=description_agent.instruction,
     tools=[generate_description],
     before_tool_callback=normalize_tool_args,

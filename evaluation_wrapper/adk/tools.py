@@ -68,6 +68,7 @@ def make_refinement_tool(config: EvalConfig):
             project_id=config.project_id,
             location=config.location,
             model=config.description_model,
+            media_type=config.media_type,
         )
         tool_context.state["current_description"] = refined
         attempt = tool_context.state.get("attempt", 1)

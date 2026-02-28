@@ -198,6 +198,7 @@ class EvalPipeline:
                     project_id=cfg.project_id,
                     location=cfg.location,
                     model=cfg.description_model,
+                    media_type=cfg.media_type,
                 )
                 logger.info(
                     "sku=%s | stage=refinement | attempt=%d | done",

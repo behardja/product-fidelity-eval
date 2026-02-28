@@ -93,6 +93,7 @@ def refine_description(
     project_id: str,
     location: str,
     model: str,
+    media_type: str = "image",
 ) -> str:
     """Refine a product description to emphasize attributes that failed evaluation.
 
@@ -105,6 +106,7 @@ def refine_description(
         project_id: GCP project ID.
         location: GCP region.
         model: Gemini model ID for refinement.
+        media_type: "image" or "video" — adapts prompt language accordingly.
 
     Returns:
         The refined description text.
@@ -113,10 +115,19 @@ def refine_description(
 
     failing_text = "\n".join(f"- {v}" for v in failing_verdicts)
 
-    refinement_prompt = f"""You are refining a product description for text-to-image generation.
+    if media_type == "video":
+        gen_task = "text-to-video generation"
+        media_word = "video"
+        spatial_cue = "Add stronger, more explicit language for the failing attributes\n- Add spatial/temporal/visual cues that help video generation models render these attributes correctly"
+    else:
+        gen_task = "text-to-image generation"
+        media_word = "image"
+        spatial_cue = "Add stronger, more explicit language for the failing attributes\n- Add spatial/visual cues that help image generation models render these attributes correctly"
 
-The original description was used to generate an image, but the following attributes
-were NOT faithfully reproduced in the generated image:
+    refinement_prompt = f"""You are refining a product description for {gen_task}.
+
+The original description was used to generate a {media_word}, but the following attributes
+were NOT faithfully reproduced in the generated {media_word}:
 
 FAILING ATTRIBUTES:
 {failing_text}
@@ -126,8 +137,7 @@ ORIGINAL DESCRIPTION:
 
 Your task: Rewrite the description to MORE STRONGLY EMPHASIZE the failing attributes.
 - Keep ALL original details intact
-- Add stronger, more explicit language for the failing attributes
-- Add spatial/visual cues that help image generation models render these attributes correctly
+- {spatial_cue}
 - Do NOT remove any attributes — reinforce them
 - Do NOT add new attributes that were not in the original
 - Output only the refined description paragraph. 750 words max."""

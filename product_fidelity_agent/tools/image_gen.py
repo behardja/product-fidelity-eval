@@ -23,12 +23,12 @@ RECONTEXTUALIZATION_PROMPT = (
 )
 
 
-def generate_product_image(tool_context: ToolContext, **kwargs) -> dict:
+def generate_product_image(tool_context: ToolContext) -> dict:
     """Generate a recontextualized product image from the original product reference image(s).
 
     Takes the original product reference image(s) from state and places them
-    into a contextually appropriate background/setting. No arguments are needed;
-    all inputs are read from state.
+    into a contextually appropriate background/setting. No explicit parameters
+    needed — all inputs are read from tool_context.state.
 
     Returns:
         dict with 'image_uri' containing the GCS URI of the generated image.

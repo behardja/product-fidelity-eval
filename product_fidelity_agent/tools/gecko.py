@@ -6,7 +6,7 @@ from vertexai import types as vertex_types
 from google.genai.errors import ClientError
 from google.adk.tools.tool_context import ToolContext
 
-from ..config import PROJECT_ID, LOCATION, PASSING_THRESHOLD, MAX_RETRIES
+from ..config import PROJECT_ID, LOCATION, PASSING_THRESHOLD, MAX_RETRIES, VIDEO_MAX_RETRIES
 
 RUBRIC_MAX_RETRIES = 3
 RUBRIC_RETRY_DELAY = 10  # seconds
@@ -287,7 +287,7 @@ def run_gecko_video_evaluation(
     }
 
 
-def check_threshold(tool_context: ToolContext, **kwargs) -> dict:
+def check_threshold(tool_context: ToolContext) -> dict:
     """Check if the current Gecko score meets the passing threshold.
 
     This is a deterministic check - no LLM reasoning is involved in the
@@ -298,6 +298,8 @@ def check_threshold(tool_context: ToolContext, **kwargs) -> dict:
     """
     score = tool_context.state.get("gecko_score", 0.0)
     attempt = tool_context.state.get("attempt", 1)
+    generation_type = tool_context.state.get("generation_type", "image")
+    max_retries = VIDEO_MAX_RETRIES if generation_type == "video" else MAX_RETRIES
 
     if score >= PASSING_THRESHOLD:
         tool_context.state["evaluation_passed"] = True
@@ -313,7 +315,7 @@ def check_threshold(tool_context: ToolContext, **kwargs) -> dict:
             ),
         }
 
-    if attempt >= MAX_RETRIES:
+    if attempt >= max_retries:
         tool_context.state["evaluation_passed"] = False
         tool_context.actions.escalate = True
         return {
@@ -321,7 +323,7 @@ def check_threshold(tool_context: ToolContext, **kwargs) -> dict:
             "score": score,
             "threshold": PASSING_THRESHOLD,
             "attempt": attempt,
-            "max_attempts": MAX_RETRIES,
+            "max_attempts": max_retries,
             "message": (
                 f"Score {score:.2f} below threshold after {attempt} attempts. "
                 "Flagged for HITL review."
@@ -337,10 +339,10 @@ def check_threshold(tool_context: ToolContext, **kwargs) -> dict:
         "score": score,
         "threshold": PASSING_THRESHOLD,
         "attempt": attempt,
-        "max_attempts": MAX_RETRIES,
+        "max_attempts": max_retries,
         "failing_verdicts": failing_verdicts,
         "message": (
             f"Score {score:.2f} below threshold {PASSING_THRESHOLD}. "
-            f"Attempt {attempt}/{MAX_RETRIES}. Refinement needed."
+            f"Attempt {attempt}/{max_retries}. Refinement needed."
         ),
     }

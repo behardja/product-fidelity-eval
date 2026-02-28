@@ -16,11 +16,11 @@ The candidate image did not pass the fidelity threshold. Refine the product
 description to better emphasize the attributes that failed evaluation.
 
 Call refine_description with:
-  - description: {ground_truth_description}
+  - description: {ground_truth_description?}
   - failing_verdicts: the failing verdicts listed below
 
 Failing verdicts from the latest evaluation:
-{failing_verdicts_text}
+{failing_verdicts_text?}
 
 Output only the refined description.""",
     tools=[refine_description],

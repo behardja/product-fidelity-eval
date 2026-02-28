@@ -9,6 +9,7 @@ from pathlib import Path
 
 # Suppress noisy "non-text parts in the response" warnings from Gemini SDK
 warnings.filterwarnings("ignore", message=".*non-text parts in the response.*")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logging.getLogger("google.genai").setLevel(logging.ERROR)
 
 # Load .env before any imports that read config
@@ -26,6 +27,8 @@ from fastapi.responses import FileResponse, StreamingResponse
 from google.adk.cli.fast_api import get_fast_api_app
 from google.cloud import storage
 from PIL import Image
+from typing import Literal
+
 from pydantic import BaseModel
 
 from batch.pipeline import run_batch
@@ -35,7 +38,7 @@ from batch.pipeline import run_batch
 # ---------------------------------------------------------------------------
 
 app = get_fast_api_app(
-    agent_dir="./product_fidelity_agent",
+    agents_dir="./product_fidelity_agent",
     web=False,
     allow_origins=["http://localhost:3000"],
 )
@@ -150,6 +153,7 @@ class BatchStartRequest(BaseModel):
     image_uris: list[str] = []
     run_all: bool = False
     user_prompt: str = ""
+    media_type: Literal["image", "video"] = "image"
 
 
 # In-memory batch state (single batch at a time)
@@ -190,7 +194,9 @@ async def batch_start(body: BatchStartRequest):
         )
 
     queue: asyncio.Queue = asyncio.Queue()
-    task = asyncio.create_task(run_batch(uris, queue, user_prompt=body.user_prompt))
+    task = asyncio.create_task(
+        run_batch(uris, queue, user_prompt=body.user_prompt, media_type=body.media_type)
+    )
 
     _batch_state = {
         "task": task,

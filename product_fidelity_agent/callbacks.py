@@ -11,6 +11,25 @@ from .tools.gcs import image_to_base64, write_to_gcs
 logger = logging.getLogger(__name__)
 
 
+def log_agent_activity(callback_context, llm_request):
+    """before_model_callback: log which agent is about to call the LLM.
+
+    Chain this before other before_model_callbacks to get visibility into
+    which agent is active when a 429 or other error occurs.
+    """
+    agent_name = getattr(callback_context, "agent_name", "unknown")
+    num_parts = sum(
+        len(c.parts) for c in llm_request.contents if c.parts
+    )
+    logger.info(
+        ">>> LLM call: agent=%s, contents=%d messages, %d parts",
+        agent_name,
+        len(llm_request.contents),
+        num_parts,
+    )
+    return None
+
+
 def normalize_tool_args(tool, args, tool_context):
     """before_tool_callback: remap unrecognized argument names to valid ones.
 
@@ -171,6 +190,8 @@ def extract_uploaded_images(callback_context, llm_request):
     inline data with a text placeholder containing the GCS URI, so the
     root agent can parse and use it like any other GCS URI.
     """
+    agent_name = getattr(callback_context, "agent_name", "unknown")
+    logger.info(">>> LLM call: agent=%s (extract_uploaded_images)", agent_name)
     for content in llm_request.contents:
         if content.role != "user":
             continue
@@ -235,6 +256,8 @@ def cleanup_image_data(callback_context, llm_request):
     Replaces inline base64 markdown images with lightweight placeholder tags
     to prevent token bloat if conversation history is ever included.
     """
+    agent_name = getattr(callback_context, "agent_name", "unknown")
+    logger.info(">>> LLM call: agent=%s (cleanup_image_data)", agent_name)
     pattern = (
         r"!\[[^\]]*\]\(data:image/"
         r"(?:jpeg|png|gif|bmp|webp);base64,[A-Za-z0-9+/=\s]+\)"

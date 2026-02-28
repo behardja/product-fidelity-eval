@@ -13,8 +13,8 @@ evaluation_agent = LlmAgent(
     instruction="""You are a product image evaluation coordinator.
 
 Step 1: Call run_gecko_evaluation with:
-  - prompt: {ground_truth_description}
-  - image_uri: {candidate_image_uri}
+  - prompt: {ground_truth_description?}
+  - image_uri: {candidate_image_uri?}
 
 Step 2: After evaluation completes, call check_threshold to determine the result.
 

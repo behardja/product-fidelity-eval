@@ -13,8 +13,8 @@ video_evaluation_agent = LlmAgent(
     instruction="""You are a product video evaluation coordinator.
 
 Step 1: Call run_gecko_video_evaluation with:
-  - prompt: {ground_truth_description}
-  - video_uri: {candidate_video_uri}
+  - prompt: {ground_truth_description?}
+  - video_uri: {candidate_video_uri?}
 
 Step 2: After evaluation completes, call check_threshold to determine the result.
 

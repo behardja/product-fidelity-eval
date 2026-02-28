@@ -28,7 +28,7 @@ def make_description_agent(config: EvalConfig, agent_model: str) -> LlmAgent:
 Your task is to generate a ground-truth description of the product from its
 reference images.
 
-Call the generate_description tool with the image URIs: {image_uris}
+Call the generate_description tool with the image URIs: {image_uris?}
 
 Output only the generated description text, nothing else.""",
         tools=[make_description_tool(config)],
@@ -58,8 +58,8 @@ def make_evaluation_agent(config: EvalConfig, agent_model: str) -> LlmAgent:
         instruction=f"""You are a product {media_word} evaluation coordinator.
 
 Step 1: Call run_gecko_evaluation with:
-  - prompt: {{ground_truth_description}}
-  - media_uri: {{{media_uri_key}}}
+  - prompt: {{ground_truth_description?}}
+  - media_uri: {{{media_uri_key}?}}
 
 Step 2: After evaluation completes, call check_threshold to determine the result.
 
@@ -91,11 +91,11 @@ The candidate did not pass the fidelity threshold. Refine the product
 description to better emphasize the attributes that failed evaluation.
 
 Call refine_description with:
-  - description: {ground_truth_description}
+  - description: {ground_truth_description?}
   - failing_verdicts: the failing verdicts listed below
 
 Failing verdicts from the latest evaluation:
-{failing_verdicts_text}
+{failing_verdicts_text?}
 
 Output only the refined description.""",
         tools=[make_refinement_tool(config)],

@@ -34,12 +34,13 @@ VIDEO_RECONTEXTUALIZATION_PROMPT = (
 POLL_INTERVAL = 15  # seconds between polling for video generation status
 
 
-def generate_product_video(tool_context: ToolContext, **kwargs) -> dict:
+def generate_product_video(tool_context: ToolContext) -> dict:
     """Generate a recontextualized product video from the original product reference image(s).
 
     Takes the original product reference image(s) from state and generates a
     video showcasing the product in a contextually appropriate setting using
-    the Veo 3.1 API.
+    the Veo 3.1 API. No explicit parameters needed — all inputs are read from
+    tool_context.state (image_uris, user_prompt, attempt, etc.).
 
     Returns:
         dict with 'video_uri' containing the GCS URI of the generated video.
@@ -123,8 +124,9 @@ def generate_product_video(tool_context: ToolContext, **kwargs) -> dict:
         time.sleep(POLL_INTERVAL)
         operation = client.operations.get(operation)
 
-    if operation.response and operation.result.generated_videos:
-        video_uri = operation.result.generated_videos[0].video.uri
+    result = getattr(operation, "result", None)
+    if result and getattr(result, "generated_videos", None):
+        video_uri = result.generated_videos[0].video.uri
         tool_context.state["candidate_video_uri"] = video_uri
         return {"status": "success", "video_uri": video_uri}
 

@@ -1,4 +1,4 @@
-"""Async batch pipeline for processing multiple product images.
+"""Async batch pipeline for processing multiple product images and videos.
 
 Imports directly from the existing agent tool functions and config.
 Functions that use ToolContext get thin async wrappers; everything else
@@ -8,6 +8,7 @@ is called as-is.
 import asyncio
 import html as html_mod
 import os
+import time as time_mod
 import traceback
 import uuid
 from pathlib import Path
@@ -16,6 +17,7 @@ import pandas as pd
 from google import genai
 from google.genai import types
 from google.genai.errors import ClientError
+from google.genai.types import GenerateVideosConfig, Image, VideoGenerationReferenceImage
 from vertexai import Client as VertexClient
 from vertexai import types as vertex_types
 
@@ -27,6 +29,11 @@ from product_fidelity_agent.config import (
     MAX_RETRIES,
     PASSING_THRESHOLD,
     PROJECT_ID,
+    VIDEO_GEN_MODEL,
+    VIDEO_ASPECT_RATIO,
+    VIDEO_GENERATE_AUDIO,
+    VIDEO_DURATION_SECONDS,
+    VIDEO_NUMBER_OF_VIDEOS,
 )
 from product_fidelity_agent.tools.gcs import (
     image_to_base64,
@@ -74,8 +81,41 @@ _RECONTEXTUALIZATION_PROMPT = (
     "logos, or any visual details."
 )
 
+_VIDEO_RECONTEXTUALIZATION_PROMPT = (
+    "Generate a short video showcasing the same product in a contextually "
+    "appropriate setting. The video should NOT have a white background, and "
+    "should be contextualized based on the product itself. "
+    "For example, if the product is a bag, the video should show the bag in a "
+    "natural ad or professional photo setting. If the product is a dress, the "
+    "video should show the dress in a natural model photo setting. "
+    "If there is a person in the original product image, create a variation "
+    "of the person with the product without copying the exact same pose and "
+    "environment as in the original image. "
+    "Keep the product exactly as it is — do not alter its design, colors, "
+    "logos, or any visual details."
+)
+
+VIDEO_POLL_INTERVAL = 15  # seconds between polling for video generation status
+
 # ---------------------------------------------------------------------------
-# Gemini client helper
+# Gecko media-type config (mirrors evaluation_wrapper/tools/gecko.py)
+# ---------------------------------------------------------------------------
+
+_GECKO_CONFIG = {
+    "image": {
+        "mime_type": "image/png",
+        "rubric_group": "gecko_image_rubrics",
+        "rubric_metric": vertex_types.RubricMetric.GECKO_TEXT2IMAGE,
+    },
+    "video": {
+        "mime_type": "video/mp4",
+        "rubric_group": "gecko_video_rubrics",
+        "rubric_metric": vertex_types.RubricMetric.GECKO_TEXT2VIDEO,
+    },
+}
+
+# ---------------------------------------------------------------------------
+# Gemini client helpers
 # ---------------------------------------------------------------------------
 
 
@@ -91,6 +131,25 @@ def _gemini_client() -> genai.Client:
                 initial_delay=1.0,
                 jitter=0.3,
                 max_delay=20.0,
+                http_status_codes=[408, 429, 500, 502, 503, 504],
+            ),
+        ),
+    )
+
+
+def _veo_client() -> genai.Client:
+    """Client with longer timeout for video generation (Veo polling)."""
+    return genai.Client(
+        vertexai=True,
+        project=PROJECT_ID,
+        location=LOCATION,
+        http_options=types.HttpOptions(
+            timeout=300 * 1000,
+            retry_options=types.HttpRetryOptions(
+                attempts=3,
+                initial_delay=2.0,
+                jitter=0.3,
+                max_delay=30.0,
                 http_status_codes=[408, 429, 500, 502, 503, 504],
             ),
         ),
@@ -128,14 +187,35 @@ async def _describe(image_uri: str) -> str:
     return response.text
 
 
-async def _refine(original_description: str, failing_verdicts: str) -> str:
+async def _refine(
+    original_description: str,
+    failing_verdicts: str,
+    media_type: str = "image",
+) -> str:
     """Refine a description to emphasize failing attributes."""
     client = _gemini_client()
 
-    refinement_prompt = f"""You are refining a product description for text-to-image generation.
+    if media_type == "video":
+        gen_task = "text-to-video generation"
+        media_word = "video"
+        spatial_cue = (
+            "Add stronger, more explicit language for the failing attributes\n"
+            "- Add spatial/temporal/visual cues that help video generation "
+            "models render these attributes correctly"
+        )
+    else:
+        gen_task = "text-to-image generation"
+        media_word = "image"
+        spatial_cue = (
+            "Add stronger, more explicit language for the failing attributes\n"
+            "- Add spatial/visual cues that help image generation models "
+            "render these attributes correctly"
+        )
 
-The original description was used to generate an image, but the following attributes
-were NOT faithfully reproduced in the generated image:
+    refinement_prompt = f"""You are refining a product description for {gen_task}.
+
+The original description was used to generate a {media_word}, but the following attributes
+were NOT faithfully reproduced in the generated {media_word}:
 
 FAILING ATTRIBUTES:
 {failing_verdicts}
@@ -145,8 +225,7 @@ ORIGINAL DESCRIPTION:
 
 Your task: Rewrite the description to MORE STRONGLY EMPHASIZE the failing attributes.
 - Keep ALL original details intact
-- Add stronger, more explicit language for the failing attributes
-- Add spatial/visual cues that help image generation models render these attributes correctly
+- {spatial_cue}
 - Do NOT remove any attributes — reinforce them
 - Do NOT add new attributes that were not in the original
 - Output only the refined description paragraph. 750 words max."""
@@ -219,19 +298,105 @@ async def _generate_image(
     raise RuntimeError("No image was generated by the model.")
 
 
+async def _generate_video(
+    image_uri: str,
+    sku_id: str,
+    attempt: int,
+    current_description: str | None = None,
+    failing_verdicts_text: str | None = None,
+    user_prompt: str = "",
+) -> str:
+    """Generate a recontextualized product video via Veo. Returns the GCS URI."""
+
+    def _call():
+        client = _veo_client()
+
+        ext = image_uri.lower().rsplit(".", 1)[-1]
+        mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
+
+        reference_images = [
+            VideoGenerationReferenceImage(
+                image=Image(gcs_uri=image_uri, mime_type=mime),
+                reference_type="asset",
+            )
+        ]
+
+        base_prompt = _VIDEO_RECONTEXTUALIZATION_PROMPT
+        if user_prompt:
+            base_prompt += (
+                f"\n\nAdditionally, follow this creative direction from the "
+                f"user: {user_prompt}"
+            )
+
+        if attempt > 1 and current_description and failing_verdicts_text:
+            prompt = (
+                f"{base_prompt}\n\n"
+                f"IMPORTANT: A previous attempt failed fidelity checks. "
+                f"Pay extra attention to the following attributes that were "
+                f"NOT faithfully reproduced:\n{failing_verdicts_text}\n\n"
+                f"Use this refined product description as guidance:\n"
+                f"{current_description}"
+            )
+        else:
+            prompt = base_prompt
+
+        output_gcs_uri = (
+            f"gs://{BUCKET_NAME}/generated_videos/{sku_id}/attempt_{attempt}"
+        )
+
+        operation = client.models.generate_videos(
+            model=VIDEO_GEN_MODEL,
+            prompt=prompt,
+            config=GenerateVideosConfig(
+                reference_images=reference_images,
+                aspect_ratio=VIDEO_ASPECT_RATIO,
+                generate_audio=VIDEO_GENERATE_AUDIO,
+                duration_seconds=VIDEO_DURATION_SECONDS,
+                number_of_videos=VIDEO_NUMBER_OF_VIDEOS,
+                output_gcs_uri=output_gcs_uri,
+            ),
+        )
+
+        # Poll until the operation completes
+        while not operation.done:
+            time_mod.sleep(VIDEO_POLL_INTERVAL)
+            operation = client.operations.get(operation)
+
+        if operation.response and operation.result.generated_videos:
+            return operation.result.generated_videos[0].video.uri
+
+        raise RuntimeError("No video was generated by the model.")
+
+    return await asyncio.to_thread(_call)
+
+
 RUBRIC_MAX_RETRIES = 3
 RUBRIC_RETRY_DELAY = 10  # seconds
 
 
-async def _gecko_eval(prompt: str, image_uri: str) -> dict:
-    """Run Gecko text-to-image evaluation. Returns dict with score and verdicts."""
+async def _gecko_eval(
+    prompt: str,
+    media_uri: str,
+    media_type: str = "image",
+) -> dict:
+    """Run Gecko evaluation. Returns dict with score and verdicts.
+
+    Args:
+        prompt: Ground-truth description.
+        media_uri: GCS URI of the candidate media.
+        media_type: "image" or "video".
+    """
+    gecko_cfg = _GECKO_CONFIG[media_type]
 
     def _call():
         vertex_client = VertexClient(project=PROJECT_ID, location=LOCATION)
 
         response_data = {
             "parts": [
-                {"file_data": {"mime_type": "image/png", "file_uri": image_uri}}
+                {"file_data": {
+                    "mime_type": gecko_cfg["mime_type"],
+                    "file_uri": media_uri,
+                }}
             ],
             "role": "model",
         }
@@ -245,8 +410,8 @@ async def _gecko_eval(prompt: str, image_uri: str) -> dict:
             try:
                 data_with_rubrics = vertex_client.evals.generate_rubrics(
                     src=eval_dataset,
-                    rubric_group_name="gecko_image_rubrics",
-                    predefined_spec_name=vertex_types.RubricMetric.GECKO_TEXT2IMAGE,
+                    rubric_group_name=gecko_cfg["rubric_group"],
+                    predefined_spec_name=gecko_cfg["rubric_metric"],
                 )
                 if isinstance(data_with_rubrics, pd.DataFrame):
                     df = data_with_rubrics
@@ -264,8 +429,7 @@ async def _gecko_eval(prompt: str, image_uri: str) -> dict:
                     f"(attempt {rubric_attempt}/{RUBRIC_MAX_RETRIES}), retrying..."
                 )
                 if rubric_attempt < RUBRIC_MAX_RETRIES:
-                    import time
-                    time.sleep(RUBRIC_RETRY_DELAY)
+                    time_mod.sleep(RUBRIC_RETRY_DELAY)
             except ClientError as e:
                 if e.status_code == 429 and rubric_attempt < RUBRIC_MAX_RETRIES:
                     print(
@@ -273,15 +437,14 @@ async def _gecko_eval(prompt: str, image_uri: str) -> dict:
                         f"(attempt {rubric_attempt}/{RUBRIC_MAX_RETRIES}), "
                         f"retrying in {RUBRIC_RETRY_DELAY}s..."
                     )
-                    import time
-                    time.sleep(RUBRIC_RETRY_DELAY)
+                    time_mod.sleep(RUBRIC_RETRY_DELAY)
                 else:
                     raise
 
         # Evaluate
         eval_result = vertex_client.evals.evaluate(
             dataset=data_with_rubrics,
-            metrics=[vertex_types.RubricMetric.GECKO_TEXT2IMAGE],
+            metrics=[gecko_cfg["rubric_metric"]],
         )
 
         # Extract results
@@ -327,16 +490,26 @@ async def _gecko_eval(prompt: str, image_uri: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Per-image pipeline
+# Per-item pipeline (image or video)
 # ---------------------------------------------------------------------------
 
 
 async def process_image(
-    uri: str, progress_queue: asyncio.Queue, user_prompt: str = "",
+    uri: str,
+    progress_queue: asyncio.Queue,
+    user_prompt: str = "",
+    media_type: str = "image",
 ) -> dict:
-    """Run the full describe -> generate -> evaluate -> retry pipeline for one image."""
+    """Run the full describe -> generate -> evaluate -> retry pipeline for one item.
+
+    Handles both image and video media types. The ``media_type`` parameter
+    controls which generation function and Gecko evaluation variant to use.
+    """
     sku_id = Path(uri).stem
     evaluation_history = []
+
+    # Choose the generation function based on media_type
+    generate_fn = _generate_video if media_type == "video" else _generate_image
 
     async with sem:
         await progress_queue.put({"sku": sku_id, "status": "running"})
@@ -348,20 +521,24 @@ async def process_image(
             failing_verdicts_text = None
 
             for attempt in range(1, MAX_RETRIES + 1):
-                # Step 2: Generate candidate image
-                candidate_uri = await _generate_image(
+                # Step 2: Generate candidate media
+                candidate_uri = await generate_fn(
                     uri, sku_id, attempt, description, failing_verdicts_text,
                     user_prompt=user_prompt,
                 )
 
                 # Step 3: Evaluate with Gecko
-                result = await _gecko_eval(description, candidate_uri)
+                result = await _gecko_eval(
+                    description, candidate_uri, media_type=media_type,
+                )
 
                 evaluation_history.append({
                     "attempt": attempt,
                     "score": result["score"],
                     "passing_verdicts": result["passing_verdicts"],
                     "failing_verdicts": result["failing_verdicts"],
+                    "media_uri": candidate_uri,
+                    # Keep legacy key for backward compatibility with reports
                     "image_uri": candidate_uri,
                 })
 
@@ -381,6 +558,7 @@ async def process_image(
                         "candidate_uri": candidate_uri,
                         "reference_uri": uri,
                         "evaluation_history": evaluation_history,
+                        "media_type": media_type,
                     }
 
                 # Step 4: Refine description for retry
@@ -389,7 +567,8 @@ async def process_image(
                 )
                 if attempt < MAX_RETRIES:
                     description = await _refine(
-                        original_description, failing_verdicts_text
+                        original_description, failing_verdicts_text,
+                        media_type=media_type,
                     )
 
             # All retries exhausted
@@ -409,6 +588,7 @@ async def process_image(
                 "candidate_uri": candidate_uri,
                 "reference_uri": uri,
                 "evaluation_history": evaluation_history,
+                "media_type": media_type,
             }
 
         except asyncio.CancelledError:
@@ -422,6 +602,7 @@ async def process_image(
                 "candidate_uri": "",
                 "reference_uri": uri,
                 "evaluation_history": evaluation_history,
+                "media_type": media_type,
                 "error": "cancelled",
             }
         except Exception as e:
@@ -443,6 +624,7 @@ async def process_image(
                 "candidate_uri": "",
                 "reference_uri": uri,
                 "evaluation_history": evaluation_history,
+                "media_type": media_type,
                 "error": str(e),
             }
 
@@ -456,10 +638,13 @@ async def run_batch(
     image_uris: list[str],
     progress_queue: asyncio.Queue,
     user_prompt: str = "",
+    media_type: str = "image",
 ) -> list[dict]:
-    """Process all images concurrently and return sorted results."""
+    """Process all items concurrently and return sorted results."""
     results = await asyncio.gather(
-        *[process_image(uri, progress_queue, user_prompt=user_prompt)
+        *[process_image(
+            uri, progress_queue, user_prompt=user_prompt, media_type=media_type,
+          )
           for uri in image_uris],
         return_exceptions=False,
     )
@@ -469,7 +654,7 @@ async def run_batch(
     await progress_queue.put({"status": "complete", "total": len(results)})
 
     # Generate batch report
-    _generate_report(results)
+    _generate_report(results, media_type=media_type)
 
     return results
 
@@ -479,7 +664,34 @@ async def run_batch(
 # ---------------------------------------------------------------------------
 
 
-def _build_product_section(product: dict) -> str:
+def _build_media_html(media_uri: str, media_type: str, alt_text: str) -> str:
+    """Build inline HTML for a candidate media item.
+
+    Images are embedded as base64 (compressed JPEG). Videos are rendered
+    as a lightweight placeholder with the GCS URI to keep the HTML small.
+    """
+    if media_type == "video":
+        escaped_uri = html_mod.escape(media_uri)
+        return (
+            f'<div class="video-placeholder">'
+            f'<div class="video-icon">&#9654;</div>'
+            f'<div class="video-label">Video</div>'
+            f'<code class="video-uri" title="GCS URI">{escaped_uri}</code>'
+            f'</div>'
+        )
+
+    # Image path: inline base64
+    b64_data, mime = image_to_base64(media_uri)
+    if b64_data:
+        return (
+            f'<img src="data:{mime};base64,{b64_data}" '
+            f'alt="{html_mod.escape(alt_text)}" '
+            f'style="max-width:100%;border-radius:4px;border:1px solid #eee;">'
+        )
+    return ""
+
+
+def _build_product_section(product: dict, media_type: str = "image") -> str:
     """Build the HTML section for a single product in the batch report."""
     sku_id = product.get("sku_id", "unknown")
     description = product.get("description", "")
@@ -487,8 +699,9 @@ def _build_product_section(product: dict) -> str:
     history = product.get("evaluation_history", [])
     passed = product.get("passed", False)
     error = product.get("error")
+    item_media_type = product.get("media_type", media_type)
 
-    # Reference image
+    # Reference image (always an image, regardless of target media_type)
     ref_img_html = ""
     if reference_uri:
         b64_data, mime_type = image_to_base64(reference_uri)
@@ -511,7 +724,7 @@ def _build_product_section(product: dict) -> str:
         score = entry["score"]
         passing = entry.get("passing_verdicts", [])
         failing = entry.get("failing_verdicts", [])
-        image_uri = entry.get("image_uri", "")
+        candidate_uri = entry.get("media_uri") or entry.get("image_uri", "")
 
         score_class = (
             "score-high" if score >= 0.7
@@ -519,15 +732,12 @@ def _build_product_section(product: dict) -> str:
             else "score-low"
         )
 
-        img_html = ""
-        if image_uri:
-            b64_data, mime_type = image_to_base64(image_uri)
-            if b64_data:
-                img_html = (
-                    f'<img src="data:{mime_type};base64,{b64_data}" '
-                    f'alt="Attempt {attempt_num}" '
-                    f'style="max-width:100%;border-radius:4px;border:1px solid #eee;">'
-                )
+        media_html = ""
+        if candidate_uri:
+            media_html = _build_media_html(
+                candidate_uri, item_media_type,
+                alt_text=f"Attempt {attempt_num}",
+            )
 
         verdicts_html = "<ul class='rubric-list'>"
         for v in failing:
@@ -553,7 +763,7 @@ def _build_product_section(product: dict) -> str:
             <span class="stats">{len(passing)}/{total} passed</span>
           </summary>
           <div class="attempt-content">
-            <div class="attempt-image">{img_html}</div>
+            <div class="attempt-image">{media_html}</div>
             <div class="attempt-verdicts">{verdicts_html}</div>
           </div>
         </details>
@@ -584,10 +794,15 @@ def _build_product_section(product: dict) -> str:
     """
 
 
-def _generate_report(results: list[dict]) -> str:
+def _generate_report(
+    results: list[dict],
+    media_type: str = "image",
+) -> str:
     """Generate the batch HTML report. Returns the file path."""
     if not results:
         return ""
+
+    media_label = "Video" if media_type == "video" else "Image"
 
     # Summary stats
     total = len(results)
@@ -600,7 +815,7 @@ def _generate_report(results: list[dict]) -> str:
 
     summary_html = f"""
     <div class="summary">
-      <h2>Batch Summary</h2>
+      <h2>Batch Summary ({media_label} Pipeline)</h2>
       <div class="summary-grid">
         <div class="summary-card">
           <div class="summary-value">{total}</div>
@@ -627,7 +842,9 @@ def _generate_report(results: list[dict]) -> str:
     """
 
     # Product sections (already sorted lowest first)
-    product_sections = [_build_product_section(r) for r in results]
+    product_sections = [
+        _build_product_section(r, media_type=media_type) for r in results
+    ]
     sections_html = "\n<hr class='product-divider'>\n".join(product_sections)
 
     html_content = f"""<!DOCTYPE html>
@@ -670,6 +887,10 @@ def _generate_report(results: list[dict]) -> str:
   .rubric-pass {{ border-color:#188038; background:#f6fef7; }}
   .rubric-fail {{ border-color:#d93025; background:#fef7f6; }}
   .icon {{ margin-right:6px; }}
+  .video-placeholder {{ background:#1a1a2e; color:#fff; padding:20px; border-radius:8px; text-align:center; }}
+  .video-icon {{ font-size:2.5em; margin-bottom:6px; }}
+  .video-label {{ font-size:0.9em; font-weight:600; margin-bottom:8px; }}
+  .video-uri {{ display:block; font-size:0.7em; color:#aaa; word-break:break-all; background:#111; padding:8px; border-radius:4px; user-select:all; }}
 </style>
 </head>
 <body>
