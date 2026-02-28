@@ -17,6 +17,7 @@ Ensure the project environment, network settings, and service accounts used have
 - Python 3.10+
 - Node.js v18+ (front-end only)
 - Google Cloud authentication (e.g. `gcloud auth application-default login`)
+- ADK (old vers)
 
 **Python dependencies:**
 
