@@ -166,6 +166,7 @@ async def _generate_image(
     attempt: int,
     current_description: str | None = None,
     failing_verdicts_text: str | None = None,
+    user_prompt: str = "",
 ) -> str:
     """Generate a recontextualized product image. Returns the GCS URI."""
     client = _gemini_client()
@@ -176,9 +177,16 @@ async def _generate_image(
         types.Part.from_uri(file_uri=image_uri, mime_type=mime),
     ]
 
+    base_prompt = _RECONTEXTUALIZATION_PROMPT
+    if user_prompt:
+        base_prompt += (
+            f"\n\nAdditionally, follow this creative direction from the user: "
+            f"{user_prompt}"
+        )
+
     if attempt > 1 and current_description and failing_verdicts_text:
         retry_prompt = (
-            f"{_RECONTEXTUALIZATION_PROMPT}\n\n"
+            f"{base_prompt}\n\n"
             f"IMPORTANT: A previous attempt failed fidelity checks. "
             f"Pay extra attention to the following attributes that were NOT "
             f"faithfully reproduced:\n{failing_verdicts_text}\n\n"
@@ -186,7 +194,7 @@ async def _generate_image(
         )
         content_parts.append(retry_prompt)
     else:
-        content_parts.append(_RECONTEXTUALIZATION_PROMPT)
+        content_parts.append(base_prompt)
 
     response = await asyncio.to_thread(
         client.models.generate_content,
@@ -323,7 +331,9 @@ async def _gecko_eval(prompt: str, image_uri: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-async def process_image(uri: str, progress_queue: asyncio.Queue) -> dict:
+async def process_image(
+    uri: str, progress_queue: asyncio.Queue, user_prompt: str = "",
+) -> dict:
     """Run the full describe -> generate -> evaluate -> retry pipeline for one image."""
     sku_id = Path(uri).stem
     evaluation_history = []
@@ -340,7 +350,8 @@ async def process_image(uri: str, progress_queue: asyncio.Queue) -> dict:
             for attempt in range(1, MAX_RETRIES + 1):
                 # Step 2: Generate candidate image
                 candidate_uri = await _generate_image(
-                    uri, sku_id, attempt, description, failing_verdicts_text
+                    uri, sku_id, attempt, description, failing_verdicts_text,
+                    user_prompt=user_prompt,
                 )
 
                 # Step 3: Evaluate with Gecko
@@ -444,10 +455,12 @@ async def process_image(uri: str, progress_queue: asyncio.Queue) -> dict:
 async def run_batch(
     image_uris: list[str],
     progress_queue: asyncio.Queue,
+    user_prompt: str = "",
 ) -> list[dict]:
     """Process all images concurrently and return sorted results."""
     results = await asyncio.gather(
-        *[process_image(uri, progress_queue) for uri in image_uris],
+        *[process_image(uri, progress_queue, user_prompt=user_prompt)
+          for uri in image_uris],
         return_exceptions=False,
     )
     # Sort lowest score first (worst products surface for review)

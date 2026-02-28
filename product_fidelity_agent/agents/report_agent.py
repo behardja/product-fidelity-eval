@@ -1,7 +1,7 @@
 from google.adk.agents.llm_agent import LlmAgent
 
 from ..config import AGENT_MODEL
-from ..callbacks import cleanup_image_data
+from ..callbacks import cleanup_image_data, normalize_tool_args
 from ..tools.reporting import create_html_report
 
 report_agent = LlmAgent(
@@ -9,6 +9,7 @@ report_agent = LlmAgent(
     model=AGENT_MODEL,
     include_contents="default",
     before_model_callback=cleanup_image_data,
+    before_tool_callback=normalize_tool_args,
     instruction="""You are a report generation coordinator.
 
 Generate a combined HTML evaluation report for ALL evaluated products by calling

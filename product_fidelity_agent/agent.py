@@ -3,7 +3,7 @@ from google.adk.agents.llm_agent import LlmAgent
 from google.adk.tools.tool_context import ToolContext
 
 from .config import AGENT_MODEL, MAX_RETRIES, VIDEO_MAX_RETRIES
-from .callbacks import extract_uploaded_images, save_product_results, cleanup_image_data
+from .callbacks import extract_uploaded_images, save_product_results, cleanup_image_data, normalize_tool_args
 from .agents.description_agent import description_agent
 from .agents.image_gen_agent import image_gen_agent
 from .agents.evaluation_agent import evaluation_agent
@@ -19,6 +19,7 @@ from .tools.reporting import create_html_report
 
 def initialize_evaluation(
     image_uris: str, sku_id: str, generation_type: str = "image",
+    user_prompt: str = "",
     tool_context: ToolContext = None,
 ) -> dict:
     """Initialize the product fidelity evaluation pipeline.
@@ -27,6 +28,7 @@ def initialize_evaluation(
         image_uris: Comma-separated GCS URIs of product reference images.
         sku_id: Product SKU identifier.
         generation_type: Either "image" (default) or "video".
+        user_prompt: Optional prompt to guide media generation (e.g. scene/setting description).
 
     Returns:
         dict confirming initialization with the provided parameters.
@@ -34,6 +36,7 @@ def initialize_evaluation(
     tool_context.state["image_uris"] = image_uris
     tool_context.state["sku_id"] = sku_id
     tool_context.state["generation_type"] = generation_type
+    tool_context.state["user_prompt"] = user_prompt
     tool_context.state["attempt"] = 1
     tool_context.state["evaluation_history"] = []
     tool_context.state["evaluation_passed"] = False
@@ -41,6 +44,7 @@ def initialize_evaluation(
         "status": "initialized",
         "sku_id": sku_id,
         "generation_type": generation_type,
+        "user_prompt": user_prompt or "(none)",
         "image_count": len([u for u in image_uris.split(",") if u.strip()]),
     }
 
@@ -55,6 +59,7 @@ video_description_agent = LlmAgent(
     include_contents="default",
     instruction=description_agent.instruction,
     tools=[generate_description],
+    before_tool_callback=normalize_tool_args,
     output_key="ground_truth_description",
     description=description_agent.description,
 )
@@ -64,6 +69,7 @@ video_refinement_agent = LlmAgent(
     model=AGENT_MODEL,
     include_contents="default",
     before_model_callback=cleanup_image_data,
+    before_tool_callback=normalize_tool_args,
     instruction=refinement_agent.instruction,
     tools=[refine_description],
     description=refinement_agent.description,
@@ -74,6 +80,7 @@ video_report_agent = LlmAgent(
     model=AGENT_MODEL,
     include_contents="default",
     before_model_callback=cleanup_image_data,
+    before_tool_callback=normalize_tool_args,
     instruction=report_agent.instruction,
     tools=[create_html_report],
     description=report_agent.description,
@@ -168,10 +175,17 @@ Users can provide product images in two ways:
 - **Uploaded images:** images uploaded in the chat are automatically saved to GCS.
   You will see "[Uploaded image saved to: gs://...]" in the message — use that URI.
 
+Users can optionally provide a **prompt** describing the desired scene or setting for
+generation. For example: "banana in a jungle with monkeys in the background" or
+"red dress on a model walking down a city street at sunset". If the user provides
+such a prompt, pass it as the user_prompt parameter to initialize_evaluation.
+If no prompt is given, leave user_prompt empty.
+
 For each product the user wants to evaluate:
 1. Parse the GCS image URI(s) and SKU ID from the user's message
-2. Call initialize_evaluation with the parsed data and the appropriate generation_type
-3. Transfer to ProductPipeline (for images) or VideoProductPipeline (for videos)
+2. Extract any scene/setting prompt the user provided (if any)
+3. Call initialize_evaluation with the parsed data, generation_type, and user_prompt
+4. Transfer to ProductPipeline (for images) or VideoProductPipeline (for videos)
 
 After the pipeline returns, summarize the result and let the user know they can provide another product.
 
@@ -180,5 +194,6 @@ SKU ID rules:
 - Otherwise derive from filename stem (e.g. gs://bucket/dress.png → dress)
 """,
     tools=[initialize_evaluation],
+    before_tool_callback=normalize_tool_args,
     sub_agents=[product_pipeline, video_product_pipeline],
 )

@@ -41,7 +41,8 @@ export async function sendMessage(
   sessionId: string,
   parts: MessagePart[],
   onChunk: (chunk: StreamChunk) => void,
-  onDone: () => void
+  onDone: () => void,
+  onError?: (error: string) => void
 ): Promise<void> {
   const ctrl = new AbortController();
 
@@ -60,6 +61,14 @@ export async function sendMessage(
       onmessage(ev) {
         try {
           const data = JSON.parse(ev.data);
+
+          // Detect server-side errors in the SSE stream
+          if (data.error) {
+            const errMsg = typeof data.error === "string" ? data.error : JSON.stringify(data.error);
+            onError?.(errMsg);
+            return;
+          }
+
           const isPartial = data.partial === true;
           if (data.content?.parts) {
             const texts: string[] = [];
@@ -81,6 +90,12 @@ export async function sendMessage(
       },
       onerror(err) {
         console.error("SSE error:", err);
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("429") || msg.toLowerCase().includes("rate")) {
+          onError?.("Rate limited (429). The Vertex AI API quota has been exceeded. Please wait 30-60 seconds and retry.");
+        } else {
+          onError?.(`Stream error: ${msg}`);
+        }
         throw err;
       },
       onclose() {

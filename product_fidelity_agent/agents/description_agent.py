@@ -1,12 +1,14 @@
 from google.adk.agents.llm_agent import LlmAgent
 
 from ..config import AGENT_MODEL
+from ..callbacks import normalize_tool_args
 from ..tools.gemini import generate_description
 
 description_agent = LlmAgent(
     name="DescriptionAgent",
     model=AGENT_MODEL,
     include_contents="default",
+    before_tool_callback=normalize_tool_args,
     instruction="""You are a product description generation coordinator.
 
 Your task is to generate a ground-truth description of the product from its

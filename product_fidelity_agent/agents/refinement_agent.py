@@ -1,7 +1,7 @@
 from google.adk.agents.llm_agent import LlmAgent
 
 from ..config import AGENT_MODEL
-from ..callbacks import cleanup_image_data
+from ..callbacks import cleanup_image_data, normalize_tool_args
 from ..tools.gemini import refine_description
 
 refinement_agent = LlmAgent(
@@ -9,13 +9,14 @@ refinement_agent = LlmAgent(
     model=AGENT_MODEL,
     include_contents="default",
     before_model_callback=cleanup_image_data,
+    before_tool_callback=normalize_tool_args,
     instruction="""You are a description refinement coordinator.
 
 The candidate image did not pass the fidelity threshold. Refine the product
 description to better emphasize the attributes that failed evaluation.
 
 Call refine_description with:
-  - original_description: {ground_truth_description}
+  - description: {ground_truth_description}
   - failing_verdicts: the failing verdicts listed below
 
 Failing verdicts from the latest evaluation:

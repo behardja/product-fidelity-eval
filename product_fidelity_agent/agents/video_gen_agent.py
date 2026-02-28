@@ -1,13 +1,14 @@
 from google.adk.agents.llm_agent import LlmAgent
 
 from ..config import AGENT_MODEL
-from ..callbacks import inject_generated_video, cleanup_image_data
+from ..callbacks import inject_generated_video, cleanup_image_data, normalize_tool_args
 from ..tools.video_gen import generate_product_video
 
 video_gen_agent = LlmAgent(
     name="VideoGenAgent",
     model=AGENT_MODEL,
     include_contents="default",
+    before_tool_callback=normalize_tool_args,
     instruction="""You are a product video generation coordinator.
 
 Generate a candidate product video by calling the generate_product_video tool.

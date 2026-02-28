@@ -40,10 +40,10 @@ def generate_product_image(tool_context: ToolContext, **kwargs) -> dict:
         http_options=types.HttpOptions(
             timeout=60 * 1000,
             retry_options=types.HttpRetryOptions(
-                attempts=5,
-                initial_delay=1.0,
+                attempts=3,
+                initial_delay=2.0,
                 jitter=0.3,
-                max_delay=20.0,
+                max_delay=30.0,
                 http_status_codes=[408, 429, 500, 502, 503, 504],
             ),
         ),
@@ -59,6 +59,15 @@ def generate_product_image(tool_context: ToolContext, **kwargs) -> dict:
         mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
         content_parts.append(types.Part.from_uri(file_uri=uri, mime_type=mime))
 
+    # Build the prompt, incorporating any user-provided scene/setting guidance
+    user_prompt = tool_context.state.get("user_prompt", "")
+    base_prompt = RECONTEXTUALIZATION_PROMPT
+    if user_prompt:
+        base_prompt += (
+            f"\n\nAdditionally, follow this creative direction from the user: "
+            f"{user_prompt}"
+        )
+
     attempt = tool_context.state.get("attempt", 1)
     if attempt > 1:
         # On retries, augment the prompt with the refined description and
@@ -66,7 +75,7 @@ def generate_product_image(tool_context: ToolContext, **kwargs) -> dict:
         refined = tool_context.state.get("current_description", "")
         failing = tool_context.state.get("failing_verdicts_text", "")
         retry_prompt = (
-            f"{RECONTEXTUALIZATION_PROMPT}\n\n"
+            f"{base_prompt}\n\n"
             f"IMPORTANT: A previous attempt failed fidelity checks. "
             f"Pay extra attention to the following attributes that were NOT "
             f"faithfully reproduced:\n{failing}\n\n"
@@ -74,7 +83,7 @@ def generate_product_image(tool_context: ToolContext, **kwargs) -> dict:
         )
         content_parts.append(retry_prompt)
     else:
-        content_parts.append(RECONTEXTUALIZATION_PROMPT)
+        content_parts.append(base_prompt)
 
     response = client.models.generate_content(
         model=IMAGE_GEN_MODEL,
