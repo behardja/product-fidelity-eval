@@ -235,7 +235,17 @@ const RunCard: React.FC<{
   const pipeline = useMemo(() => parsePipeline(run.messages), [run.messages]);
   const hasAgentOutput = run.messages.some((m) => m.role === "agent");
   const isRunning = run.status === "running";
-  const filename = run.referenceUri.split("/").pop() ?? run.referenceUri;
+  const hasGcsRef = !!run.referenceUri;
+  const filename = hasGcsRef
+    ? (run.referenceUri.split("/").pop() ?? run.referenceUri)
+    : run.uploadedImages.length > 0
+      ? run.uploadedImages[0].name
+      : "Uploaded images";
+  const headerThumb = hasGcsRef
+    ? thumbnailUrl(run.referenceUri)
+    : run.uploadedImages.length > 0
+      ? run.uploadedImages[0].preview
+      : null;
 
   // Auto-expand when this run starts streaming
   useEffect(() => {
@@ -250,11 +260,17 @@ const RunCard: React.FC<{
         className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-white dark:bg-surface-dark border border-slate-200 dark:border-border-dark shadow-sm hover:bg-slate-50 dark:hover:bg-border-dark transition-colors text-left"
       >
         <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${isRunning ? "bg-amber-500 animate-pulse" : run.status === "error" ? "bg-red-500" : "bg-green-500"}`} />
-        <img
-          src={thumbnailUrl(run.referenceUri)}
-          alt=""
-          className="w-8 h-8 rounded object-cover border border-slate-200 dark:border-border-dark flex-shrink-0"
-        />
+        {headerThumb ? (
+          <img
+            src={headerThumb}
+            alt=""
+            className="w-8 h-8 rounded object-cover border border-slate-200 dark:border-border-dark flex-shrink-0"
+          />
+        ) : (
+          <div className="w-8 h-8 rounded bg-slate-100 dark:bg-border-dark flex items-center justify-center flex-shrink-0">
+            <span className="material-symbols-outlined text-slate-400 text-[16px]">image</span>
+          </div>
+        )}
         <div className="flex-1 min-w-0">
           <span className="text-sm font-bold text-slate-900 dark:text-white">
             {totalRuns > 1 ? `#${runIndex + 1} — ` : ""}{filename}
@@ -291,17 +307,19 @@ const RunCard: React.FC<{
               Reference
             </h4>
             <div className="flex items-start gap-3 flex-wrap">
-              <div className="relative">
-                <img
-                  src={thumbnailUrl(run.referenceUri)}
-                  alt="Reference"
-                  className="w-20 h-20 rounded-lg object-cover border border-slate-200 dark:border-border-dark cursor-pointer hover:opacity-80 transition-opacity"
-                  onClick={() => onLightbox(thumbnailUrl(run.referenceUri))}
-                />
-                <span className="absolute -top-1 -left-1 bg-primary text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full">
-                  GCS
-                </span>
-              </div>
+              {hasGcsRef && (
+                <div className="relative">
+                  <img
+                    src={thumbnailUrl(run.referenceUri)}
+                    alt="Reference"
+                    className="w-20 h-20 rounded-lg object-cover border border-slate-200 dark:border-border-dark cursor-pointer hover:opacity-80 transition-opacity"
+                    onClick={() => onLightbox(thumbnailUrl(run.referenceUri))}
+                  />
+                  <span className="absolute -top-1 -left-1 bg-primary text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full">
+                    GCS
+                  </span>
+                </div>
+              )}
               {run.uploadedImages.map((img, i) => (
                 <div key={i} className="relative">
                   <img
@@ -606,11 +624,12 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
   const doSend = async (eval_: PendingEval) => {
     if (!sessionId || streaming) return;
 
-    const displayParts = [eval_.uri];
+    const displayParts: string[] = [];
+    if (eval_.uri) displayParts.push(eval_.uri);
     if (eval_.userPrompt) displayParts.push(`Prompt: ${eval_.userPrompt}`);
     if (eval_.uploadedImages.length > 0)
       displayParts.push(
-        `+ ${eval_.uploadedImages.length} uploaded image${eval_.uploadedImages.length > 1 ? "s" : ""}`
+        `${eval_.uploadedImages.length} uploaded image${eval_.uploadedImages.length > 1 ? "s" : ""}`
       );
     setMessages((prev) => [
       ...prev,
@@ -625,7 +644,9 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
     for (const img of eval_.uploadedImages) {
       parts.push({ inline_data: { mime_type: img.mime, data: img.data } });
     }
-    let textContent = `Evaluate ${eval_.uri}`;
+    let textContent = eval_.uri
+      ? `Evaluate ${eval_.uri}`
+      : "Evaluate the uploaded product images";
     if (eval_.userPrompt) {
       textContent += `\n\nUser prompt: ${eval_.userPrompt}`;
     }

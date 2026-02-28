@@ -71,10 +71,13 @@ const ImageBrowser: React.FC<ImageBrowserProps> = ({
   };
 
   const handleEvaluateClick = () => {
+    if (!selectedUri && uploadedImages.length === 0) return;
     onEvaluate(userPrompt, uploadedImages);
     setUserPrompt("");
     setUploadedImages([]);
   };
+
+  const canEvaluate = !!(selectedUri || uploadedImages.length > 0);
 
   const isBatch = mode === "batch";
 
@@ -231,17 +234,33 @@ const ImageBrowser: React.FC<ImageBrowserProps> = ({
           </div>
         )}
         {!data && !loading && !error && (
-          <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-2">
+          <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-4">
             <span className="material-symbols-outlined text-5xl">
               cloud_upload
             </span>
             <p className="text-sm">Enter a GCS prefix and click Browse</p>
+            {!isBatch && (
+              <>
+                <div className="flex items-center gap-3 text-xs text-slate-400">
+                  <div className="h-px w-10 bg-slate-300 dark:bg-border-dark" />
+                  or
+                  <div className="h-px w-10 bg-slate-300 dark:bg-border-dark" />
+                </div>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 border-dashed border-slate-300 dark:border-border-dark text-slate-500 dark:text-slate-400 hover:border-primary hover:text-primary transition-colors text-sm"
+                >
+                  <span className="material-symbols-outlined text-[20px]">upload_file</span>
+                  Upload images from your computer
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
 
-      {/* Selected image info + Prompt + Upload + Evaluate (agent mode only) */}
-      {!isBatch && selectedUri && (
+      {/* Prompt + Upload + Evaluate (agent mode only — always visible) */}
+      {!isBatch && (
         <div className="border-t border-slate-200 dark:border-border-dark bg-white dark:bg-[#111318] px-6 py-4">
           {/* Uploaded image thumbnails */}
           {uploadedImages.length > 0 && (
@@ -267,10 +286,12 @@ const ImageBrowser: React.FC<ImageBrowserProps> = ({
             </div>
           )}
 
-          {/* Selected URI */}
-          <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-            Selected: <span className="font-mono">{selectedUri}</span>
-          </p>
+          {/* Selected URI (only if one is selected) */}
+          {selectedUri && (
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+              Selected: <span className="font-mono">{selectedUri}</span>
+            </p>
+          )}
 
           {/* Prompt + buttons row */}
           <div className="flex items-end gap-3">
@@ -298,7 +319,8 @@ const ImageBrowser: React.FC<ImageBrowserProps> = ({
             </button>
             <button
               onClick={handleEvaluateClick}
-              className="flex-shrink-0 h-9 px-4 flex items-center gap-2 rounded-lg bg-primary text-white text-sm font-bold hover:bg-blue-600 transition-colors shadow-sm"
+              disabled={!canEvaluate}
+              className="flex-shrink-0 h-9 px-4 flex items-center gap-2 rounded-lg bg-primary text-white text-sm font-bold hover:bg-blue-600 transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <span className="material-symbols-outlined text-[18px]">
                 play_arrow

@@ -33,8 +33,8 @@ function App() {
   }, [initSession]);
 
   const handleEvaluate = (userPrompt: string, uploadedImages: UploadedImage[]) => {
-    if (!selectedUri) return;
-    setPendingEval({ uri: selectedUri, userPrompt, uploadedImages });
+    if (!selectedUri && uploadedImages.length === 0) return;
+    setPendingEval({ uri: selectedUri || "", userPrompt, uploadedImages });
   };
 
   const handleNewChat = () => {
