@@ -17,7 +17,7 @@ LOCATION = "us-central1"
 BUCKET_NAME = "my-bucket"
 PASSING_THRESHOLD = 0.7
 MAX_RETRIES = 3
-DESCRIPTION_MODEL = "gemini-2.5-pro"
+DESCRIPTION_MODEL = "gemini-3-pro-preview"
 MEDIA_TYPE = "image"  # or "video"
 ```
 
@@ -69,7 +69,7 @@ The file must be in a GCS bucket readable by your GCP project, because the Gecko
 
 Your function **never** touches Gecko, **never** manages retries, **never** deals with refinement. It just generates when asked.
 
-### Example: Imagen on Vertex AI
+### Example: Nano banana on Vertex AI
 
 ```python
 # your_generate.py
@@ -83,7 +83,9 @@ def my_imagen_generate(reference_uris, description, attempt, failing_verdicts, *
     sku_id = kwargs.get("sku_id", "unknown")
     user_prompt = kwargs.get("user_prompt", "")
 
-    client = genai.Client(vertexai=True, project="my-project", location="us-central1")
+    client = genai.Client(
+        vertexai=True, project="my-project", location="us-central1",
+    )
 
     # Build the prompt from description + any user creative direction
     prompt = f"Generate a product photo: {description}"
@@ -106,7 +108,7 @@ def my_imagen_generate(reference_uris, description, attempt, failing_verdicts, *
 
     # Generate
     response = client.models.generate_content(
-        model="gemini-2.5-pro",
+        model="gemini-3-pro-image-preview",
         contents=content_parts,
         config=types.GenerateContentConfig(response_modalities=["IMAGE", "TEXT"]),
     )
@@ -216,19 +218,41 @@ The result dict:
 
 ---
 
-## Using as a Tool in a Multi-Agent System
+## Integrating with a Multi-Agent System
 
-If you have an existing multi-agent system (ADK or otherwise) and want to call the evaluation wrapper as a **tool**, wrap `pipeline.run()` in a tool function. The pipeline is a regular Python function call — it doesn't require ADK to run.
+There are two architectural patterns for integrating this wrapper into a multi-agent system.
+
+### Option 1: The "Tool" Approach (Simpler)
+
+In this approach, you write a standard Python `my_generate()` function. Your agent pauses, calls the wrapper as a single **tool**, and the wrapper runs its entire Generate → Score → Refine loop internally using your Python function.
+
+- **Who generates?** Your pure Python `my_generate()` function.
+- **Who loops?** The `EvalPipeline` handles the retry loop internally.
+- **Best for:** Most users. It treats the complex evaluation loop as a single black box.
+
+### Option 2: The "ADK-Native" Approach (Advanced)
+
+In this approach, you do *not* write a `my_generate()` Python function. Instead, you build a fully-fledged "Generation Agent" (which likely has its own tools for calling Vertex AI, Midjourney, etc.). You hand that entire Agent over to the wrapper, which orchestrates it alongside its own Evaluation and Refinement Agents in a shared ADK tree.
+
+- **Who generates?** Your "Generation Agent" (using its own tools).
+- **Who loops?** The ADK orchestrator (passing state between your generation agent and the wrapper's eval agents).
+- **Best for:** Complex generation workflows where your generation step requires its own multi-agent logic or extensive state management.
+
+---
+
+## Option 1: Using as a Tool
+
+If you want to use the simpler "Tool" approach, wrap `pipeline.run()` in a tool function. The pipeline is a regular Python function call — it doesn't require ADK to run.
 
 ### As an ADK tool
 
 ```python
 # your_adk_app.py
 from google.adk.tools.tool_context import ToolContext
-from evaluation_wrapper import EvalPipeline, EvalConfig
+from evaluation_wrapper import EvalPipeline, EvalConfig  # evaluation_wrapper/__init__.py
 
-config = EvalConfig.from_settings()
-pipeline = EvalPipeline(generate_fn=my_imagen_generate, config=config)
+config = EvalConfig.from_settings()  # reads from evaluation_wrapper/settings.py
+pipeline = EvalPipeline(generate_fn=my_imagen_generate, config=config)  # evaluation_wrapper/pipeline.py
 
 def evaluate_product(image_uris: str, sku_id: str, tool_context: ToolContext) -> dict:
     """Evaluate product fidelity for a generated image.
@@ -258,13 +282,13 @@ from google.adk.agents.llm_agent import LlmAgent
 
 root = LlmAgent(
     name="MyAgent",
-    model="gemini-2.5-pro",
+    model="gemini-3-pro-preview",
     tools=[evaluate_product],
     instruction="When the user provides product images, evaluate their fidelity...",
 )
 ```
 
-This is the simplest way to integrate: your multi-agent system calls `evaluate_product` as a tool, the pipeline runs synchronously, and the result dict comes back. No ADK agent tree required inside the wrapper.
+Your multi-agent system calls `evaluate_product` as a tool, the pipeline runs synchronously inside it, and the result dict comes back. No ADK agent tree required inside the wrapper.
 
 ### As a plain function call
 
@@ -283,11 +307,20 @@ if not result["passed"]:
 
 ---
 
-## ADK-Native Integration (Alternative)
+## Option 2: ADK-Native Integration
 
 If your generation logic is itself an ADK agent and you want the eval loop to run **inside** ADK's agent orchestration (with ADK tracing, state management, and agent tree composition), use `build_eval_pipeline()`.
 
-This is the heavier integration path. Most users should use the tool-based approach above. Use this only when you need the eval loop to be part of your ADK agent tree.
+You provide your Generation Agent. The wrapper builds an agent tree around it:
+
+```
+SequentialAgent (EvalPipeline)
+  ├── DescriptionAgent              ← wrapper's agent
+  └── LoopAgent (RefinementLoop)    ← wrapper's loop
+        ├── YOUR GenerationAgent    ← your agent, plugged in here
+        ├── EvaluationAgent         ← wrapper's agent (runs Gecko)
+        └── RefinementAgent         ← wrapper's agent (refines description)
+```
 
 ```python
 # your_adk_app.py
@@ -299,13 +332,12 @@ from google.adk.agents.llm_agent import LlmAgent
 # See "ADK State Contract" below for required keys
 my_gen_agent = LlmAgent(
     name="MyImageGenAgent",
-    model="gemini-2.5-pro",
+    model="gemini-3-pro-preview",
     tools=[my_generate_tool],
     instruction="Generate a product image using the reference images in {image_uris}...",
 )
 
-# build_eval_pipeline() returns a SequentialAgent:
-#   DescriptionAgent → LoopAgent[YourGenAgent → EvaluationAgent → RefinementAgent]
+# Build the eval pipeline agent tree
 eval_pipeline = build_eval_pipeline(
     generate_agent=my_gen_agent,
     config=EvalConfig(project_id="my-project"),

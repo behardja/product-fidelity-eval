@@ -15,7 +15,7 @@ class EvalConfig:
     bucket_name: str = ""
     threshold: float = 0.7
     max_retries: int = 3
-    description_model: str = "gemini-2.5-pro"
+    description_model: str = "gemini-3-pro-preview"
     media_type: str = "image"  # "image" or "video"
 
     @classmethod

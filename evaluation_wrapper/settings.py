@@ -12,8 +12,8 @@ LOCATION = os.environ.get("LOCATION", "us-central1")
 BUCKET_NAME = os.environ.get("BUCKET_NAME", "sandbox-401718-product-fidelity-evals")
 
 # --- Model IDs ---
-DESCRIPTION_MODEL = "gemini-2.5-pro"
-AGENT_MODEL = "gemini-2.5-pro"  # Used by ADK-native wrapper for orchestration agents
+DESCRIPTION_MODEL = "gemini-3-pro-preview"
+AGENT_MODEL = "gemini-3-pro-preview"  # Used by ADK-native wrapper for orchestration agents
 
 # --- Evaluation Thresholds ---
 PASSING_THRESHOLD = 0.7
