@@ -287,7 +287,7 @@ def run_gecko_video_evaluation(
     }
 
 
-def check_threshold(tool_context: ToolContext) -> dict:
+def check_threshold(tool_context: ToolContext, **kwargs) -> dict:
     """Check if the current Gecko score meets the passing threshold.
 
     This is a deterministic check - no LLM reasoning is involved in the

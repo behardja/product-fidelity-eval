@@ -7,7 +7,7 @@ from ..tools.video_gen import generate_product_video
 video_gen_agent = LlmAgent(
     name="VideoGenAgent",
     model=AGENT_MODEL,
-    include_contents="none",
+    include_contents="default",
     instruction="""You are a product video generation coordinator.
 
 Generate a candidate product video by calling the generate_product_video tool.

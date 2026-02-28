@@ -1,9 +1,9 @@
 import os
 
 # --- GCP Configuration ---
-PROJECT_ID = os.environ.get("PROJECT_ID", "cpg-cdp")
+PROJECT_ID = os.environ.get("PROJECT_ID", "sandbox-401718")
 LOCATION = os.environ.get("LOCATION", "us-central1")
-BUCKET_NAME = os.environ.get("BUCKET_NAME", "sandbox-401718-product-fidelity-eval")
+BUCKET_NAME = os.environ.get("BUCKET_NAME", "sandbox-401718-product-fidelity-evals")
 
 # --- Model IDs ---
 DESCRIPTION_MODEL = "gemini-3-pro-preview"

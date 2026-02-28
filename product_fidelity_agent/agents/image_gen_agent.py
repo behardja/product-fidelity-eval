@@ -7,7 +7,7 @@ from ..tools.image_gen import generate_product_image
 image_gen_agent = LlmAgent(
     name="ImageGenAgent",
     model=AGENT_MODEL,
-    include_contents="none",
+    include_contents="default",
     instruction="""You are a product image generation coordinator.
 
 Generate a candidate product image by calling the generate_product_image tool.

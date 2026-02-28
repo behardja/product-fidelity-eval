@@ -7,7 +7,7 @@ from ..tools.gecko import run_gecko_video_evaluation, check_threshold
 video_evaluation_agent = LlmAgent(
     name="VideoEvaluationAgent",
     model=AGENT_MODEL,
-    include_contents="none",
+    include_contents="default",
     before_model_callback=cleanup_image_data,
     instruction="""You are a product video evaluation coordinator.
 

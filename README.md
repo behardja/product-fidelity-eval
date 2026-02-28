@@ -47,7 +47,7 @@ cd app
 npm install
 ```
 
-**2. Start the backend server (terminal 1):**
+**2. Start the backend server from root (terminal 1):**
 
 ```bash
 uvicorn server:app --host 0.0.0.0 --port 8000 --reload
@@ -57,7 +57,7 @@ uvicorn server:app --host 0.0.0.0 --port 8000 --reload
 
 ```bash
 cd app
-npm run dev
+npm run dev # alt. npx vite --host 0.0.0.0
 ```
 
 The app opens at [http://localhost:3000](http://localhost:3000).

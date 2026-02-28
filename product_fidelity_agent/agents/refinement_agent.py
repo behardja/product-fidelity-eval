@@ -7,7 +7,7 @@ from ..tools.gemini import refine_description
 refinement_agent = LlmAgent(
     name="RefinementAgent",
     model=AGENT_MODEL,
-    include_contents="none",
+    include_contents="default",
     before_model_callback=cleanup_image_data,
     instruction="""You are a description refinement coordinator.
 

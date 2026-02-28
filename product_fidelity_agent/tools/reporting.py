@@ -130,7 +130,7 @@ def _build_product_section(product: dict) -> str:
     """
 
 
-def create_html_report(tool_context: ToolContext) -> dict:
+def create_html_report(tool_context: ToolContext, **kwargs) -> dict:
     """Generate a combined HTML evaluation report for all evaluated products.
 
     Reads from tool_context.state["all_products"] (list of product result dicts).

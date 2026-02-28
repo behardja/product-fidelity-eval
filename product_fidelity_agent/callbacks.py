@@ -1,3 +1,4 @@
+import logging
 import re
 import uuid
 
@@ -5,6 +6,8 @@ from google.genai import types
 
 from .config import BUCKET_NAME
 from .tools.gcs import image_to_base64, write_to_gcs
+
+logger = logging.getLogger(__name__)
 
 
 def _get_text(llm_response):
@@ -26,8 +29,12 @@ def inject_generated_image(callback_context, llm_response):
     side-by-side comparison.
     """
     # Only inject on final text responses, not intermediate tool-call responses
-    if not _get_text(llm_response):
+    text = _get_text(llm_response)
+    if not text:
+        logger.info("inject_generated_image: skipped (no text in response)")
         return None
+
+    logger.info("inject_generated_image: callback fired, response text=%s", text[:120])
 
     parts_to_append = []
 
@@ -47,6 +54,7 @@ def inject_generated_image(callback_context, llm_response):
 
     # Inject the candidate image
     candidate_uri = callback_context.state.get("candidate_image_uri")
+    logger.info("inject_generated_image: candidate_image_uri=%s", candidate_uri)
     if candidate_uri:
         b64_data, mime_type = image_to_base64(candidate_uri)
         if b64_data:
@@ -55,7 +63,13 @@ def inject_generated_image(callback_context, llm_response):
             parts_to_append.append(
                 types.Part(text=f"\n\n**Candidate (attempt {attempt}):**\n{markdown_img}\n")
             )
+            logger.info("inject_generated_image: injected candidate image (attempt %d, %d bytes)", attempt, len(b64_data))
+        else:
+            logger.warning("inject_generated_image: failed to load image from %s", candidate_uri)
+    else:
+        logger.info("inject_generated_image: no candidate_image_uri in state")
 
+    logger.info("inject_generated_image: appending %d parts", len(parts_to_append))
     for part in parts_to_append:
         llm_response.content.parts.append(part)
     return None

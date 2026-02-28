@@ -34,7 +34,7 @@ VIDEO_RECONTEXTUALIZATION_PROMPT = (
 POLL_INTERVAL = 15  # seconds between polling for video generation status
 
 
-def generate_product_video(tool_context: ToolContext) -> dict:
+def generate_product_video(tool_context: ToolContext, **kwargs) -> dict:
     """Generate a recontextualized product video from the original product reference image(s).
 
     Takes the original product reference image(s) from state and generates a

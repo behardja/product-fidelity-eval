@@ -6,7 +6,7 @@ from ..tools.gemini import generate_description
 description_agent = LlmAgent(
     name="DescriptionAgent",
     model=AGENT_MODEL,
-    include_contents="none",
+    include_contents="default",
     instruction="""You are a product description generation coordinator.
 
 Your task is to generate a ground-truth description of the product from its

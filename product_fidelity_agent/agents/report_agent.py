@@ -7,7 +7,7 @@ from ..tools.reporting import create_html_report
 report_agent = LlmAgent(
     name="ReportAgent",
     model=AGENT_MODEL,
-    include_contents="none",
+    include_contents="default",
     before_model_callback=cleanup_image_data,
     instruction="""You are a report generation coordinator.
 

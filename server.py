@@ -1,9 +1,15 @@
 import asyncio
 import json
+import logging
 import os
 import time
+import warnings
 from io import BytesIO
 from pathlib import Path
+
+# Suppress noisy "non-text parts in the response" warnings from Gemini SDK
+warnings.filterwarnings("ignore", message=".*non-text parts in the response.*")
+logging.getLogger("google.genai").setLevel(logging.ERROR)
 
 # Load .env before any imports that read config
 _env_path = Path(__file__).resolve().parent / ".env"
@@ -29,7 +35,7 @@ from batch.pipeline import run_batch
 # ---------------------------------------------------------------------------
 
 app = get_fast_api_app(
-    agents_dir="./product_fidelity_agent",
+    agent_dir="./product_fidelity_agent",
     web=False,
     allow_origins=["http://localhost:3000"],
 )

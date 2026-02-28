@@ -7,7 +7,7 @@ from ..tools.gecko import run_gecko_evaluation, check_threshold
 evaluation_agent = LlmAgent(
     name="EvaluationAgent",
     model=AGENT_MODEL,
-    include_contents="none",
+    include_contents="default",
     before_model_callback=cleanup_image_data,
     instruction="""You are a product image evaluation coordinator.
 
