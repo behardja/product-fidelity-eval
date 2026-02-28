@@ -1,3 +1,4 @@
+import inspect
 import logging
 import re
 import uuid
@@ -8,6 +9,49 @@ from .config import BUCKET_NAME
 from .tools.gcs import image_to_base64, write_to_gcs
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_tool_args(tool, args, tool_context):
+    """before_tool_callback: remap unrecognized argument names to valid ones.
+
+    LLMs sometimes hallucinate slightly wrong parameter names (e.g. "description"
+    instead of "original_description"). This callback inspects the tool function's
+    signature and attempts to match any unrecognized arg to a valid parameter by
+    substring containment. Mutates *args* in-place and returns None so the actual
+    tool still executes.
+    """
+    func = getattr(tool, "func", None)
+    if func is None:
+        return None
+
+    sig = inspect.signature(func)
+    valid_params = set(sig.parameters.keys()) - {"tool_context"}
+
+    unknown_keys = [k for k in args if k not in valid_params]
+    if not unknown_keys:
+        return None
+
+    for key in unknown_keys:
+        # Try substring match: "description" matches "original_description"
+        matched = None
+        for param in valid_params:
+            if key in param or param in key:
+                if param not in args:
+                    matched = param
+                    break
+        if matched:
+            logger.info(
+                "normalize_tool_args: remapped '%s' -> '%s' for tool %s",
+                key, matched, getattr(tool, "name", "?"),
+            )
+            args[matched] = args.pop(key)
+        else:
+            logger.warning(
+                "normalize_tool_args: unknown arg '%s' for tool %s (valid: %s)",
+                key, getattr(tool, "name", "?"), valid_params,
+            )
+
+    return None
 
 
 def _get_text(llm_response):

@@ -75,20 +75,28 @@ def generate_product_video(tool_context: ToolContext, **kwargs) -> dict:
             )
         )
 
-    # Build the prompt
+    # Build the prompt, incorporating any user-provided scene/setting guidance
+    user_prompt = tool_context.state.get("user_prompt", "")
+    base_prompt = VIDEO_RECONTEXTUALIZATION_PROMPT
+    if user_prompt:
+        base_prompt += (
+            f"\n\nAdditionally, follow this creative direction from the user: "
+            f"{user_prompt}"
+        )
+
     attempt = tool_context.state.get("attempt", 1)
     if attempt > 1:
         refined = tool_context.state.get("current_description", "")
         failing = tool_context.state.get("failing_verdicts_text", "")
         prompt = (
-            f"{VIDEO_RECONTEXTUALIZATION_PROMPT}\n\n"
+            f"{base_prompt}\n\n"
             f"IMPORTANT: A previous attempt failed fidelity checks. "
             f"Pay extra attention to the following attributes that were NOT "
             f"faithfully reproduced:\n{failing}\n\n"
             f"Use this refined product description as guidance:\n{refined}"
         )
     else:
-        prompt = VIDEO_RECONTEXTUALIZATION_PROMPT
+        prompt = base_prompt
 
     # Set output GCS path for the generated video
     sku_id = tool_context.state.get("sku_id", "unknown")

@@ -1,13 +1,14 @@
 from google.adk.agents.llm_agent import LlmAgent
 
 from ..config import AGENT_MODEL
-from ..callbacks import inject_generated_image, cleanup_image_data
+from ..callbacks import inject_generated_image, cleanup_image_data, normalize_tool_args
 from ..tools.image_gen import generate_product_image
 
 image_gen_agent = LlmAgent(
     name="ImageGenAgent",
     model=AGENT_MODEL,
     include_contents="default",
+    before_tool_callback=normalize_tool_args,
     instruction="""You are a product image generation coordinator.
 
 Generate a candidate product image by calling the generate_product_image tool.

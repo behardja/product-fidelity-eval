@@ -1,12 +1,19 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import ImageCard from "./ImageCard";
 import { listImages, type GcsListResponse } from "../services/gcsClient";
 import type { AppMode } from "./Header";
 
+export interface UploadedImage {
+  name: string;
+  mime: string;
+  data: string;       // base64
+  preview: string;     // data URI for thumbnail
+}
+
 interface ImageBrowserProps {
   selectedUri: string | null;
   onSelectImage: (uri: string) => void;
-  onEvaluate: () => void;
+  onEvaluate: (userPrompt: string, uploadedImages: UploadedImage[]) => void;
   mode?: AppMode;
   checkedUris?: Set<string>;
   onToggleCheck?: (uri: string) => void;
@@ -30,11 +37,44 @@ const ImageBrowser: React.FC<ImageBrowserProps> = ({
   currentPrefix,
   onPrefixChange,
 }) => {
-  const [prefix, setPrefix] = useState(currentPrefix ?? "");
+  const [prefix, setPrefix] = useState(currentPrefix || "gs://");
   const [data, setData] = useState<GcsListResponse | null>(null);
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Agent mode: prompt + upload state
+  const [userPrompt, setUserPrompt] = useState("");
+  const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    Array.from(files).forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUri = reader.result as string;
+        const base64 = dataUri.split(",")[1];
+        setUploadedImages((prev) => [
+          ...prev,
+          { name: file.name, mime: file.type, data: base64, preview: dataUri },
+        ]);
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = "";
+  };
+
+  const removeUpload = (index: number) => {
+    setUploadedImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleEvaluateClick = () => {
+    onEvaluate(userPrompt, uploadedImages);
+    setUserPrompt("");
+    setUploadedImages([]);
+  };
 
   const isBatch = mode === "batch";
 
@@ -200,26 +240,72 @@ const ImageBrowser: React.FC<ImageBrowserProps> = ({
         )}
       </div>
 
-      {/* Selected image info + Evaluate (agent mode only) */}
+      {/* Selected image info + Prompt + Upload + Evaluate (agent mode only) */}
       {!isBatch && selectedUri && (
-        <div className="px-6 py-3 border-t border-slate-200 dark:border-border-dark bg-white dark:bg-[#111318] flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Selected
-            </p>
-            <p className="text-sm font-mono text-slate-900 dark:text-white truncate">
-              {selectedUri}
-            </p>
+        <div className="border-t border-slate-200 dark:border-border-dark bg-white dark:bg-[#111318] px-6 py-4">
+          {/* Uploaded image thumbnails */}
+          {uploadedImages.length > 0 && (
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              {uploadedImages.map((img, i) => (
+                <div key={i} className="relative group">
+                  <img
+                    src={img.preview}
+                    alt={img.name}
+                    className="w-12 h-12 rounded-lg object-cover border border-slate-200 dark:border-border-dark"
+                  />
+                  <button
+                    onClick={() => removeUpload(i)}
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-xs"
+                  >
+                    <span className="material-symbols-outlined text-[12px]">close</span>
+                  </button>
+                  <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[8px] text-center truncate rounded-b-lg px-0.5">
+                    {img.name}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Selected URI */}
+          <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+            Selected: <span className="font-mono">{selectedUri}</span>
+          </p>
+
+          {/* Prompt + buttons row */}
+          <div className="flex items-end gap-3">
+            <textarea
+              className="flex-1 min-h-[80px] max-h-40 px-3 py-2.5 rounded-lg bg-slate-50 dark:bg-surface-dark border border-slate-200 dark:border-border-dark text-sm text-slate-900 dark:text-white placeholder-slate-400 resize-y focus:ring-1 focus:ring-primary focus:border-primary"
+              placeholder="Describe the scene or setting (optional)..."
+              rows={3}
+              value={userPrompt}
+              onChange={(e) => setUserPrompt(e.target.value)}
+            />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              multiple
+              className="hidden"
+              onChange={handleFileSelect}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              title="Upload reference images"
+              className="flex-shrink-0 h-9 w-9 flex items-center justify-center rounded-lg border border-slate-200 dark:border-border-dark text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-border-dark transition-colors"
+            >
+              <span className="material-symbols-outlined text-[20px]">add</span>
+            </button>
+            <button
+              onClick={handleEvaluateClick}
+              className="flex-shrink-0 h-9 px-4 flex items-center gap-2 rounded-lg bg-primary text-white text-sm font-bold hover:bg-blue-600 transition-colors shadow-sm"
+            >
+              <span className="material-symbols-outlined text-[18px]">
+                play_arrow
+              </span>
+              Evaluate
+            </button>
           </div>
-          <button
-            onClick={onEvaluate}
-            className="flex-shrink-0 h-9 px-4 flex items-center gap-2 rounded-lg bg-primary text-white text-sm font-bold hover:bg-blue-600 transition-colors shadow-sm"
-          >
-            <span className="material-symbols-outlined text-[18px]">
-              play_arrow
-            </span>
-            Evaluate
-          </button>
         </div>
       )}
 

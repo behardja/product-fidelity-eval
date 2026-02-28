@@ -30,10 +30,10 @@ def generate_description(image_uris: str, tool_context: ToolContext) -> dict:
         http_options=types.HttpOptions(
             timeout=60 * 1000,
             retry_options=types.HttpRetryOptions(
-                attempts=5,
-                initial_delay=1.0,
+                attempts=3,
+                initial_delay=2.0,
                 jitter=0.3,
-                max_delay=20.0,
+                max_delay=30.0,
                 http_status_codes=[408, 429, 500, 502, 503, 504],
             ),
         ),
@@ -68,7 +68,7 @@ def generate_description(image_uris: str, tool_context: ToolContext) -> dict:
 
 
 def refine_description(
-    original_description: str, failing_verdicts: str, tool_context: ToolContext
+    description: str, failing_verdicts: str, tool_context: ToolContext
 ) -> dict:
     """Refine a product description to emphasize attributes that failed evaluation.
 
@@ -76,7 +76,7 @@ def refine_description(
     to prevent drift across iterations.
 
     Args:
-        original_description: The original ground-truth description.
+        description: The original ground-truth description to refine.
         failing_verdicts: Newline-separated list of failing rubric verdicts.
 
     Returns:
@@ -89,10 +89,10 @@ def refine_description(
         http_options=types.HttpOptions(
             timeout=60 * 1000,
             retry_options=types.HttpRetryOptions(
-                attempts=5,
-                initial_delay=1.0,
+                attempts=3,
+                initial_delay=2.0,
                 jitter=0.3,
-                max_delay=20.0,
+                max_delay=30.0,
                 http_status_codes=[408, 429, 500, 502, 503, 504],
             ),
         ),
@@ -107,7 +107,7 @@ FAILING ATTRIBUTES:
 {failing_verdicts}
 
 ORIGINAL DESCRIPTION:
-{original_description}
+{description}
 
 Your task: Rewrite the description to MORE STRONGLY EMPHASIZE the failing attributes.
 - Keep ALL original details intact

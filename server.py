@@ -149,6 +149,7 @@ class BatchStartRequest(BaseModel):
     prefix: str = ""
     image_uris: list[str] = []
     run_all: bool = False
+    user_prompt: str = ""
 
 
 # In-memory batch state (single batch at a time)
@@ -189,7 +190,7 @@ async def batch_start(body: BatchStartRequest):
         )
 
     queue: asyncio.Queue = asyncio.Queue()
-    task = asyncio.create_task(run_batch(uris, queue))
+    task = asyncio.create_task(run_batch(uris, queue, user_prompt=body.user_prompt))
 
     _batch_state = {
         "task": task,

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Header, { type AppMode } from "./components/Header";
-import ImageBrowser from "./components/ImageBrowser";
-import ChatPanel from "./components/ChatPanel";
+import ImageBrowser, { type UploadedImage } from "./components/ImageBrowser";
+import ResultsPanel, { type PendingEval } from "./components/ResultsPanel";
 import BatchDashboard from "./components/BatchDashboard";
 import { createSession, type ChatMessage } from "./services/adkClient";
 import { listImages } from "./services/gcsClient";
@@ -11,7 +11,7 @@ function App() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [selectedUri, setSelectedUri] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
+  const [pendingEval, setPendingEval] = useState<PendingEval | null>(null);
 
   // Batch mode state
   const [checkedUris, setCheckedUris] = useState<Set<string>>(new Set());
@@ -32,9 +32,9 @@ function App() {
     initSession();
   }, [initSession]);
 
-  const handleEvaluate = () => {
+  const handleEvaluate = (userPrompt: string, uploadedImages: UploadedImage[]) => {
     if (!selectedUri) return;
-    setPendingMessage(`Evaluate ${selectedUri}`);
+    setPendingEval({ uri: selectedUri, userPrompt, uploadedImages });
   };
 
   const handleNewChat = () => {
@@ -108,12 +108,13 @@ function App() {
           onPrefixChange={handlePrefixChange}
         />
         {mode === "agent" ? (
-          <ChatPanel
+          <ResultsPanel
             sessionId={sessionId}
             messages={messages}
             setMessages={setMessages}
-            pendingMessage={pendingMessage}
-            clearPendingMessage={() => setPendingMessage(null)}
+            pendingEval={pendingEval}
+            clearPendingEval={() => setPendingEval(null)}
+            referenceUri={selectedUri}
           />
         ) : (
           <BatchDashboard
