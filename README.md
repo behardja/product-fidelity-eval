@@ -87,6 +87,11 @@ A multi-agent pipeline built on Google ADK that generates product images (or vid
 
 The agent supports both image and video evaluation pipelines. See the [agent README](./product_fidelity_agent/README.md) for architecture details, state flow, and video-specific agents.
 
+### Evaluation Wrapper (Standalone Library)
+
+* [evaluation_wrapper Folder](./evaluation_wrapper) :
+A standalone, reusable evaluation library that can be integrated into any Python project or multi-agent system. It packages the core evaluation loop (description generation, Gecko scoring, threshold checking, and iterative refinement) into a simple interface: you provide a generation function, the wrapper handles everything else.
+
 ### Notebooks
 
 * [notebooks/product_fidelity_eval.ipynb](./notebooks/product_fidelity_eval.ipynb) — Walks through assessing product **image** fidelity by using Gemini to create a detailed ground-truth description of a reference image, which then serves as the prompt for the rubric-based Gecko evaluation metric to score candidate images.
